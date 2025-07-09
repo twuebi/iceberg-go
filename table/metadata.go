@@ -277,10 +277,9 @@ func (b *MetadataBuilder) AddSchema(schema *iceberg.Schema, newLastColumnID int,
 }
 
 func (b *MetadataBuilder) AddPartitionSpec(spec *iceberg.PartitionSpec, initial bool) (*MetadataBuilder, error) {
-	for _, s := range b.specs {
-		if s.ID() == spec.ID() && !initial {
-			return nil, fmt.Errorf("partition spec with id %d already exists", spec.ID())
-		}
+	cs := b.CurrentSchema()
+	if cs == nil {
+		return nil, fmt.Errorf("cannot add partition spec, no schema found")
 	}
 
 	maxFieldID := 0
@@ -306,6 +305,21 @@ func (b *MetadataBuilder) AddPartitionSpec(spec *iceberg.PartitionSpec, initial 
 	b.updates = append(b.updates, NewAddPartitionSpecUpdate(spec, initial))
 
 	return b, nil
+}
+
+func (b *MetadataBuilder) reuseOrCreateNewSpecId(newSpec iceberg.PartitionSpec) int {
+	for _, s := range b.specs {
+		if newSpec.CompatibleWith(&s) {
+			return s.ID()
+		}
+	}
+	return b.getHighestOrDefaultSpecID()
+}
+
+func (b *MetadataBuilder) getHighestOrDefaultSpecID() int {
+	return maxBy(b.specs, func(s iceberg.PartitionSpec) int {
+		return s.ID()
+	})
 }
 
 func (b *MetadataBuilder) AddSnapshot(snapshot *Snapshot) (*MetadataBuilder, error) {
@@ -421,9 +435,7 @@ func (b *MetadataBuilder) SetDefaultSortOrderID(defaultSortOrderID int) (*Metada
 
 func (b *MetadataBuilder) SetDefaultSpecID(defaultSpecID int) (*MetadataBuilder, error) {
 	if defaultSpecID == -1 {
-		defaultSpecID = maxBy(b.specs, func(s iceberg.PartitionSpec) int {
-			return s.ID()
-		})
+		defaultSpecID = b.getHighestOrDefaultSpecID()
 		if !slices.ContainsFunc(b.updates, func(u Update) bool {
 			return u.Action() == UpdateAddSpec && u.(*addPartitionSpecUpdate).Spec.ID() == defaultSpecID
 		}) {
