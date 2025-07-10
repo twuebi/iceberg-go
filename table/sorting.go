@@ -21,7 +21,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"slices"
 	"strings"
 
 	"github.com/apache/iceberg-go"
@@ -60,6 +59,14 @@ type SortField struct {
 	NullOrder NullOrder `json:"null-order"`
 }
 
+// Equals checks for equality with another SortField.
+func (s *SortField) Equals(other SortField) bool {
+	return s.SourceID == other.SourceID &&
+		s.Direction == other.Direction &&
+		s.NullOrder == other.NullOrder &&
+		s.Transform == other.Transform
+}
+
 func (s *SortField) String() string {
 	if _, ok := s.Transform.(iceberg.IdentityTransform); ok {
 		return fmt.Sprintf("%d %s %s", s.SourceID, s.Direction, s.NullOrder)
@@ -82,8 +89,13 @@ func (s *SortField) MarshalJSON() ([]byte, error) {
 	}
 
 	type Alias SortField
-
-	return json.Marshal((*Alias)(s))
+	return json.Marshal(struct {
+		Transform string `json:"transform"`
+		*Alias
+	}{
+		Transform: s.Transform.String(),
+		Alias:     (*Alias)(s),
+	})
 }
 
 func (s *SortField) UnmarshalJSON(b []byte) error {
@@ -128,18 +140,26 @@ const (
 var UnsortedSortOrder = SortOrder{OrderID: UnsortedSortOrderID, Fields: []SortField{}}
 
 // SortOrder describes how the data is sorted within the table.
-//
-// Data can be sorted within partitions by columns to gain performance. The
-// order of the sort fields within the list defines the order in which the
-// sort is applied to the data.
 type SortOrder struct {
 	OrderID int         `json:"order-id"`
 	Fields  []SortField `json:"fields"`
 }
 
+// IsUnsorted returns true if the sort order has no fields.
+func (s SortOrder) IsUnsorted() bool {
+	return len(s.Fields) == 0
+}
+
 func (s SortOrder) Equals(rhs SortOrder) bool {
-	return s.OrderID == rhs.OrderID &&
-		slices.Equal(s.Fields, rhs.Fields)
+	if s.OrderID != rhs.OrderID || len(s.Fields) != len(rhs.Fields) {
+		return false
+	}
+	for i := range s.Fields {
+		if !s.Fields[i].Equals(rhs.Fields[i]) {
+			return false
+		}
+	}
+	return true
 }
 
 func (s SortOrder) String() string {
@@ -147,15 +167,34 @@ func (s SortOrder) String() string {
 	fmt.Fprintf(&b, "%d: ", s.OrderID)
 	b.WriteByte('[')
 	for i, f := range s.Fields {
-		if i == 0 {
-			b.WriteByte('\n')
+		if i > 0 {
+			b.WriteString(", ")
 		}
 		b.WriteString(f.String())
-		b.WriteByte('\n')
 	}
 	b.WriteByte(']')
 
 	return b.String()
+}
+
+// Validate checks if the sort order is compatible with the given schema.
+func (s *SortOrder) Validate(schema *iceberg.Schema) error {
+	for _, sortField := range s.Fields {
+		_, ok := schema.FindFieldByID(sortField.SourceID)
+		if !ok {
+			return fmt.Errorf("cannot find source column for sort field: %s", sortField.String())
+		}
+
+		// FIXME: add missing validations
+		//if !sourceField.Type.IsPrimitive() {
+		//	return fmt.Errorf("cannot sort by non-primitive source field: %s", sourceField.Type)
+		//}
+
+		//if _, err := sortField.Transform.ResultType(sourceField.Type); err != nil {
+		//	return fmt.Errorf("invalid source type %s for transform %s", sourceField.Type, sortField.Transform)
+		//}
+	}
+	return nil
 }
 
 func (s *SortOrder) UnmarshalJSON(b []byte) error {
@@ -168,29 +207,31 @@ func (s *SortOrder) UnmarshalJSON(b []byte) error {
 
 	if len(s.Fields) == 0 {
 		s.Fields = []SortField{}
-		s.OrderID = 0
-
-		return nil
+		if s.OrderID != 0 {
+			return errors.New("unsorted order ID must be 0")
+		}
 	}
 
-	if s.OrderID == 0 {
-		s.OrderID = InitialSortOrderID // initialize default sort order id
+	if s.OrderID == 0 && len(s.Fields) > 0 {
+		return errors.New("sort order ID 0 is reserved for unsorted order")
 	}
 
 	return nil
 }
 
 // AssignFreshSortOrderIDs updates and reassigns the field source IDs from the old schema
-// to the corresponding fields in the fresh schema, while also giving the Sort Order a fresh
-// ID of 0 (the initial Sort Order ID).
+// to the corresponding fields in the fresh schema.
 func AssignFreshSortOrderIDs(sortOrder SortOrder, old, fresh *iceberg.Schema) (SortOrder, error) {
-	return AssignFreshSortOrderIDsWithID(sortOrder, old, fresh, InitialSortOrderID)
+	orderID := InitialSortOrderID
+	if sortOrder.IsUnsorted() {
+		orderID = UnsortedSortOrderID
+	}
+	return AssignFreshSortOrderIDsWithID(sortOrder, old, fresh, orderID)
 }
 
-// AssignFreshSortOrderIDsWithID is like AssignFreshSortOrderIDs but allows specifying the id of the
-// returned SortOrder.
+// AssignFreshSortOrderIDsWithID is like AssignFreshSortOrderIDs but allows specifying the id.
 func AssignFreshSortOrderIDsWithID(sortOrder SortOrder, old, fresh *iceberg.Schema, sortOrderID int) (SortOrder, error) {
-	if sortOrder.Equals(UnsortedSortOrder) {
+	if sortOrder.IsUnsorted() {
 		return UnsortedSortOrder, nil
 	}
 

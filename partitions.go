@@ -117,7 +117,19 @@ func (ps *PartitionSpec) CompatibleWith(other *PartitionSpec) bool {
 // Equals returns true iff the field lists are the same AND the spec id
 // is the same between this partition spec and the provided one.
 func (ps PartitionSpec) Equals(other PartitionSpec) bool {
-	return ps.id == other.id && slices.Equal(ps.fields, other.fields)
+	if ps.id != other.id || len(ps.fields) != len(other.fields) {
+		return false
+	}
+
+	for i := range ps.fields {
+		if ps.fields[i].SourceID != other.fields[i].SourceID ||
+			ps.fields[i].FieldID != other.fields[i].FieldID ||
+			ps.fields[i].Name != other.fields[i].Name ||
+			ps.fields[i].Transform != other.fields[i].Transform {
+			return false
+		}
+	}
+	return true
 }
 
 // Fields returns a clone of the partition fields in this spec.
@@ -177,6 +189,16 @@ func (ps PartitionSpec) IsUnpartitioned() bool {
 	return true
 }
 
+// IsSequential checks if partition field IDs are sequential, starting from 1000.
+func (ps *PartitionSpec) IsSequential() bool {
+	for i, f := range ps.fields {
+		if f.FieldID != partitionDataIDStart+i {
+			return false
+		}
+	}
+	return true
+}
+
 func (ps *PartitionSpec) FieldsBySourceID(fieldID int) []PartitionField {
 	return slices.Clone(ps.sourceIdToFields[fieldID])
 }
@@ -197,6 +219,7 @@ func (ps PartitionSpec) String() string {
 	return b.String()
 }
 
+// LastAssignedFieldID returns the highest field ID in the partition spec.
 func (ps *PartitionSpec) LastAssignedFieldID() int {
 	if len(ps.fields) == 0 {
 		return partitionDataIDStart - 1
@@ -212,25 +235,23 @@ func (ps *PartitionSpec) LastAssignedFieldID() int {
 	return id
 }
 
-// PartitionType produces a struct of the partition spec.
-//
-// The partition fields should be optional:
-//   - All partition transforms are required to produce null if the input value
-//     is null. This can happen when the source column is optional.
-//   - Partition fields may be added later, in which case not all files would
-//     have the result field and it may be null.
-//
-// There is a case where we can guarantee that a partition field in the first
-// and only parittion spec that uses a required source column will never be
-// null, but it doesn't seem worth tracking this case.
-func (ps *PartitionSpec) PartitionType(schema *Schema) *StructType {
-	nestedFields := []NestedField{}
+// PartitionType produces a struct of the partition spec, returning an error if incompatible.
+func (ps *PartitionSpec) PartitionType(schema *Schema) (*StructType, error) {
+	nestedFields := make([]NestedField, 0, len(ps.fields))
 	for _, field := range ps.fields {
-		sourceType, ok := schema.FindTypeByID(field.SourceID)
+		sourceField, ok := schema.FindFieldByID(field.SourceID)
 		if !ok {
-			continue
+			return nil, fmt.Errorf("cannot find source column for partition field: %d", field.SourceID)
 		}
+
+		sourceType := sourceField.Type
 		resultType := field.Transform.ResultType(sourceType)
+		// FIXME: validation of transform is missing
+		//if err != nil {
+		//	return nil, fmt.Errorf("invalid source type %s for transform %s",
+		//		sourceType, field.Transform)
+		//}
+
 		nestedFields = append(nestedFields, NestedField{
 			ID:       field.FieldID,
 			Name:     field.Name,
@@ -239,18 +260,16 @@ func (ps *PartitionSpec) PartitionType(schema *Schema) *StructType {
 		})
 	}
 
-	return &StructType{FieldList: nestedFields}
+	return &StructType{FieldList: nestedFields}, nil
 }
 
 // PartitionToPath produces a proper partition path from the data and schema by
 // converting the values to human readable strings and properly escaping.
-//
-// The path will be in the form of `name1=value1/name2=value2/...`.
-//
-// This does not apply the transforms to the data, it is assumed the provided data
-// has already been transformed appropriately.
 func (ps *PartitionSpec) PartitionToPath(data structLike, sc *Schema) string {
-	partType := ps.PartitionType(sc)
+	partType, err := ps.PartitionType(sc)
+	if err != nil {
+		return ""
+	}
 
 	segments := make([]string, 0, len(partType.FieldList))
 	for i := range partType.Fields() {
@@ -263,9 +282,35 @@ func (ps *PartitionSpec) PartitionToPath(data structLike, sc *Schema) string {
 	return path.Join(segments...)
 }
 
+// BindPartitionSpec creates a bound PartitionSpec from an unbound one by assigning field IDs.
+func BindPartitionSpec(schema *Schema, spec *PartitionSpec, lastAssignedFieldID int) (*PartitionSpec, error) {
+	newFields := make([]PartitionField, 0, len(spec.fields))
+	nextFieldID := lastAssignedFieldID + 1
+
+	for _, field := range spec.fields {
+		_, ok := schema.FindFieldByID(field.SourceID)
+		if !ok {
+			return nil, fmt.Errorf("cannot find source field with id %d in schema", field.SourceID)
+		}
+		// FIXME: add validation
+		//if _, err := field.Transform.ResultType(sourceField.Type); err != nil {
+		//	return nil, fmt.Errorf("transform %s is not compatible with source type %s", field.Transform, sourceField.Type)
+		//}
+
+		newField := field
+		if newField.FieldID < partitionDataIDStart {
+			newField.FieldID = nextFieldID
+			nextFieldID++
+		}
+		newFields = append(newFields, newField)
+	}
+
+	newSpec := NewPartitionSpecID(spec.id, newFields...)
+	return &newSpec, nil
+}
+
 // AssignFreshPartitionSpecIDs creates a new PartitionSpec by reassigning the field IDs
-// from the old schema to the corresponding fields in the fresh schema, while re-assigning
-// the actual Spec IDs to 1000 + the position of the field in the partition spec.
+// from the old schema to the corresponding fields in the fresh schema.
 func AssignFreshPartitionSpecIDs(spec *PartitionSpec, old, fresh *Schema) (PartitionSpec, error) {
 	if spec == nil {
 		return PartitionSpec{}, nil
@@ -295,9 +340,6 @@ func AssignFreshPartitionSpecIDs(spec *PartitionSpec, old, fresh *Schema) (Parti
 }
 
 // GeneratePartitionFieldName returns default partition field name based on field transform type
-//
-// The default names are aligned with other client implementations
-// https://github.com/apache/iceberg/blob/main/core/src/main/java/org/apache/iceberg/BaseUpdatePartitionSpec.java#L518-L563
 func GeneratePartitionFieldName(schema *Schema, field PartitionField) (string, error) {
 	if len(field.Name) > 0 {
 		return field.Name, nil

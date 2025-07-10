@@ -961,9 +961,12 @@ func (p *partitionFieldStats[T]) update(value any) (err error) {
 }
 
 func constructPartitionSummaries(spec PartitionSpec, schema *Schema, partitions []map[int]any) ([]FieldSummary, error) {
-	partType := spec.PartitionType(schema)
-	fieldStats := make([]fieldStats, len(partType.FieldList))
 	var err error
+	partType, err := spec.PartitionType(schema)
+	if err != nil {
+		return nil, err
+	}
+	fieldStats := make([]fieldStats, len(partType.FieldList))
 	for i, field := range partType.FieldList {
 		pt, ok := field.Type.(PrimitiveType)
 		if !ok {
@@ -1025,8 +1028,8 @@ func NewManifestWriter(version int, out io.Writer, spec PartitionSpec, schema *S
 	default:
 		return nil, fmt.Errorf("unsupported manifest version: %d", version)
 	}
-
-	sc, err := partitionTypeToAvroSchema(spec.PartitionType(schema))
+	typ, err := spec.PartitionType(schema)
+	sc, err := partitionTypeToAvroSchema(typ)
 	if err != nil {
 		return nil, err
 	}

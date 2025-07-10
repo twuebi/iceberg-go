@@ -239,12 +239,14 @@ func (scan *Scan) buildManifestEvaluator(specID int) (func(iceberg.ManifestFile)
 }
 
 func (scan *Scan) buildPartitionEvaluator(specID int) func(iceberg.DataFile) (bool, error) {
-	spec := scan.metadata.PartitionSpecs()[specID]
-	partType := spec.PartitionType(scan.metadata.CurrentSchema())
-	partSchema := iceberg.NewSchema(0, partType.FieldList...)
-	partExpr := scan.partitionFilters.Get(specID)
-
 	return func(d iceberg.DataFile) (bool, error) {
+		spec := scan.metadata.PartitionSpecs()[specID]
+		partType, err := spec.PartitionType(scan.metadata.CurrentSchema())
+		if err != nil {
+			return false, err
+		}
+		partSchema := iceberg.NewSchema(0, partType.FieldList...)
+		partExpr := scan.partitionFilters.Get(specID)
 		fn, err := iceberg.ExpressionEvaluator(partSchema, partExpr, scan.caseSensitive)
 		if err != nil {
 			return false, err

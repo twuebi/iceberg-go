@@ -183,7 +183,7 @@ func NewAddSchemaUpdate(schema *iceberg.Schema, lastColumnID int, initial bool) 
 }
 
 func (u *addSchemaUpdate) Apply(builder *MetadataBuilder) error {
-	_, err := builder.AddSchema(u.Schema, u.LastColumnID, u.initial)
+	_, err := builder.AddSchema(u.Schema, u.LastColumnID)
 
 	return err
 }
@@ -226,7 +226,7 @@ func NewAddPartitionSpecUpdate(spec *iceberg.PartitionSpec, initial bool) Update
 }
 
 func (u *addPartitionSpecUpdate) Apply(builder *MetadataBuilder) error {
-	_, err := builder.AddPartitionSpec(u.Spec, u.initial)
+	_, err := builder.AddPartitionSpec(u.Spec)
 
 	return err
 }
@@ -269,7 +269,7 @@ func NewAddSortOrderUpdate(sortOrder *SortOrder, initial bool) Update {
 }
 
 func (u *addSortOrderUpdate) Apply(builder *MetadataBuilder) error {
-	_, err := builder.AddSortOrder(u.SortOrder, u.initial)
+	_, err := builder.AddSortOrder(u.SortOrder)
 
 	return err
 }
