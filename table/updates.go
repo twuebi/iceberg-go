@@ -459,5 +459,14 @@ func NewRemoveSnapshotRefUpdate(ref string) *removeSnapshotRefUpdate {
 }
 
 func (u *removeSnapshotRefUpdate) Apply(builder *MetadataBuilder) error {
-	return fmt.Errorf("%w: %s", iceberg.ErrNotImplemented, UpdateRemoveSnapshotRef)
+	if u.RefName == MainBranch {
+		builder.currentSnapshotID = nil
+		builder.snapshotLog = make([]SnapshotLogEntry, 0)
+	}
+
+	_, ok := builder.refs[u.RefName]
+	if ok {
+		delete(builder.refs, u.RefName)
+	}
+	return nil
 }
