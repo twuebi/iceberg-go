@@ -37,7 +37,7 @@ const (
 	partitionFieldStartID                      = 1000
 	supportedTableFormatVersion                = 2
 	LastAdded                                  = -1
-	PropertyMetadataPreviousVersionsMax        = "metadata.previous-versions-max"
+	PropertyMetadataPreviousVersionsMax        = "write.metadata.previous-versions-max"
 	PropertyMetadataPreviousVersionsMaxDefault = 100
 )
 
@@ -214,7 +214,6 @@ func MetadataBuilderFromBase(metadata Metadata) (*MetadataBuilder, error) {
 	b.refs = maps.Collect(metadata.Refs())
 	b.snapshotLog = slices.Collect(metadata.SnapshotLogs())
 	b.metadataLog = slices.Collect(metadata.PreviousFiles())
-
 	return b, nil
 }
 
@@ -766,6 +765,7 @@ func (b *MetadataBuilder) TrimMetadataLogs(maxEntries int) *MetadataBuilder {
 		return b
 	}
 	b.metadataLog = b.metadataLog[len(b.metadataLog)-maxEntries:]
+
 	return b
 }
 
@@ -839,7 +839,7 @@ func (b *MetadataBuilder) expireMetadataLog() {
 	if maxSize < 1 {
 		maxSize = 1
 	}
-
+	
 	if len(b.metadataLog) > maxSize {
 		b.metadataLog = b.metadataLog[len(b.metadataLog)-maxSize:]
 	}
