@@ -108,6 +108,14 @@ func (u *Updates) UnmarshalJSON(data []byte) error {
 			upd = &removeSpecUpdate{}
 		case UpdateRemoveSchemas:
 			upd = &removeSchemasUpdate{}
+		//case UpdateSetStatistics:
+		//	upd = &setStatisticsUpdate{}
+		//case UpdateRemoveStatistics:
+		//	upd = &removeStatisticsUpdate{}
+		//case UpdateAddEncryptionKey:
+		//	upd = &addEncryptionKeyUpdate{}
+		//case UpdateRemoveEncryptionKey:
+		//	upd = &removeEncryptionKeyUpdate{}
 		default:
 			return fmt.Errorf("unknown update action: %s", base.ActionName)
 		}
@@ -471,10 +479,10 @@ func (u *removeSnapshotRefUpdate) Apply(builder *MetadataBuilder) error {
 
 type removeSpecUpdate struct {
 	baseUpdate
-	SpecIds []int64 `json:"spec-ids"`
+	SpecIds []int `json:"spec-ids"`
 }
 
-func NewRemoveSpecUpdate(specIds []int64) Update {
+func NewRemoveSpecUpdate(specIds []int) Update {
 	return &removeSpecUpdate{
 		baseUpdate: baseUpdate{ActionName: UpdateRemoveSpec},
 		SpecIds:    specIds,
@@ -487,10 +495,10 @@ func (u *removeSpecUpdate) Apply(builder *MetadataBuilder) error {
 
 type removeSchemasUpdate struct {
 	baseUpdate
-	SchemaIds []int64 `json:"schema-ids"`
+	SchemaIds []int `json:"schema-ids"`
 }
 
-func NewRemoveSchemasUpdate(specIds []int64) Update {
+func NewRemoveSchemasUpdate(specIds []int) Update {
 	return &removeSpecUpdate{
 		baseUpdate: baseUpdate{ActionName: UpdateRemoveSchemas},
 		SpecIds:    specIds,
@@ -498,5 +506,5 @@ func NewRemoveSchemasUpdate(specIds []int64) Update {
 }
 
 func (u *removeSchemasUpdate) Apply(builder *MetadataBuilder) error {
-	return fmt.Errorf("%w: %s", iceberg.ErrNotImplemented, UpdateRemoveSchemas)
+	return builder.RemoveSchemas(u.SchemaIds)
 }

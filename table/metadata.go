@@ -704,6 +704,28 @@ func (b *MetadataBuilder) AppendMetadataLog(entry MetadataLogEntry) *MetadataBui
 	return b
 }
 
+func (b *MetadataBuilder) RemoveSchemas(ids []int) error {
+	if len(ids) == 0 {
+		return nil
+	}
+	if slices.Contains(ids, b.currentSchemaID) {
+		return ErrCannotRemoveCurrentSchemas
+	}
+
+	removedIds := make([]int, 0, len(ids))
+	for _, id := range ids {
+		idx := slices.IndexFunc(b.schemaList, func(schema *iceberg.Schema) bool {
+			return schema.ID == id
+		})
+		if idx != -1 {
+			b.schemaList = append(b.schemaList[:idx], b.schemaList[idx:]...)
+			removedIds = append(removedIds, id)
+		}
+	}
+	b.updates = append(b.updates, NewRemoveSchemasUpdate(ids))
+	return nil
+}
+
 func (b *MetadataBuilder) Build() (Metadata, error) {
 	common := b.buildCommonMetadata()
 	if err := common.validate(); err != nil {
@@ -764,6 +786,7 @@ func maxBy[S ~[]E, E any](elems S, extract func(e E) int) int {
 var (
 	ErrInvalidMetadataFormatVersion = errors.New("invalid or missing format-version in table metadata")
 	ErrInvalidMetadata              = errors.New("invalid metadata")
+	ErrCannotRemoveCurrentSchemas   = errors.New("cannot remove current schemas")
 )
 
 // ParseMetadata parses json metadata provided by the passed in reader,
