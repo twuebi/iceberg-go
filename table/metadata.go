@@ -873,6 +873,29 @@ func sliceEqualHelper[T interface{ Equals(T) bool }](s1, s2 []T) bool {
 	})
 }
 
+// slicesAreUnequal returns true if slices are different, treating nil and empty as equal.
+func slicesAreUnequal[T any](s1, s2 []T, eqFunc func([]T, []T) bool) bool {
+	if len(s1) != len(s2) {
+		return true // Unequal if lengths differ.
+	}
+	if len(s1) == 0 {
+		return false // Both are empty or nil, so they are equal.
+	}
+	// Lengths are the same and > 0, so do the full comparison.
+	return !eqFunc(s1, s2)
+}
+
+// mapsAreUnequal returns true if maps are different, treating nil and empty as equal.
+func mapsAreUnequal[K comparable, V any](m1, m2 map[K]V, eqFunc func(map[K]V, map[K]V) bool) bool {
+	if len(m1) != len(m2) {
+		return true
+	}
+	if len(m1) == 0 {
+		return false
+	}
+	return !eqFunc(m1, m2)
+}
+
 // https://iceberg.apache.org/spec/#iceberg-table-spec
 type commonMetadata struct {
 	FormatVersion      int                     `json:"format-version"`
@@ -926,13 +949,13 @@ func (c *commonMetadata) Equals(other *commonMetadata) bool {
 	}
 
 	switch {
-	case !sliceEqualHelper(c.SchemaList, other.SchemaList):
+	case !sliceEqualHelper(c.SchemaList, other.SchemaList) && !((len(c.SchemaList) == 0 && other.SchemaList == nil) || (len(other.SchemaList) == 0 && c.SchemaList == nil)):
 		fallthrough
-	case !sliceEqualHelper(c.SnapshotList, other.SnapshotList):
+	case !sliceEqualHelper(c.SnapshotList, other.SnapshotList) && !((len(c.SnapshotList) == 0 && other.SnapshotList == nil) || (len(other.SnapshotList) == 0 && c.SnapshotList == nil)):
 		fallthrough
-	case !sliceEqualHelper(c.Specs, other.Specs):
+	case !sliceEqualHelper(c.Specs, other.Specs) && !((len(c.Specs) == 0 && other.Specs == nil) || (len(other.Specs) == 0 && c.Specs == nil)):
 		fallthrough
-	case !maps.Equal(c.Props, other.Props):
+	case !maps.Equal(c.Props, other.Props) && !((len(c.Props) == 0 && other.Props == nil) || (len(other.Props) == 0 && c.Props == nil)):
 		fallthrough
 	case !maps.EqualFunc(c.SnapshotRefs, other.SnapshotRefs, func(sr1, sr2 SnapshotRef) bool { return sr1.Equals(sr2) }):
 		return false
@@ -1036,6 +1059,10 @@ func (c *commonMetadata) preValidate() {
 		// treat -1 as the same as nil, clean this up in pre-validation
 		// to make the validation logic simplified later
 		c.CurrentSnapshotID = nil
+	}
+
+	if c.SnapshotRefs == nil {
+		c.SnapshotRefs = map[string]SnapshotRef{}
 	}
 
 	if c.CurrentSnapshotID != nil {
