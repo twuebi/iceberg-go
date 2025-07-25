@@ -19,6 +19,7 @@ package iceberg
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"iter"
 	"net/url"
@@ -83,6 +84,93 @@ type PartitionSpec struct {
 
 	// this is populated by initialize after creation
 	sourceIdToFields map[int][]PartitionField
+}
+
+type Option func(*PartitionSpec) error
+
+func WithSpecID(id int) Option {
+	return func(p *PartitionSpec) error {
+		p.id = id
+		return nil
+	}
+}
+
+func AddPartitionField(sourceName string, targetName string, schema *Schema, transform Transform) Option {
+	return func(p *PartitionSpec) error {
+		field, ok := schema.FindFieldByName(sourceName)
+
+		if !ok {
+			return errors.New(fmt.Sprintf("Cannot find source column with name: %s in schema", sourceName))
+		}
+		if targetName == "" {
+			return errors.New(fmt.Sprintf("Cannot use empty partition name"))
+		}
+		for _, existingField := range p.fields {
+			if existingField.Name == targetName {
+				return errors.New(fmt.Sprintf("Duplicate partition name: %s", targetName))
+			}
+		}
+		// TODO: checkForRedundantPartitions()
+		unboundField := PartitionField{
+			SourceID: field.ID,
+			// TODO: make it nullable to mirror rusts Bound / Unbound field?
+			FieldID:   -1,
+			Name:      targetName,
+			Transform: transform,
+		}
+		p.fields = append(p.fields, unboundField)
+		return nil
+	}
+}
+
+const (
+	// unassignedFieldID indicates that a field ID should be auto-assigned.
+	unassignedFieldID = -1
+	// defaultStartingFieldID is the conventional starting number for auto-assigned IDs.
+	defaultStartingFieldID = 1000
+)
+
+func NewPartitionSpecOpts(opts ...Option) (PartitionSpec, error) {
+	// Initialize the spec and apply all functional options.
+	spec := PartitionSpec{
+		id: 0,
+	}
+	for _, opt := range opts {
+		if err := opt(&spec); err != nil {
+			return PartitionSpec{}, err
+		}
+	}
+
+	// Collect all pre-assigned IDs to avoid collisions.
+	assignedIds := make(map[int]struct{})
+	for _, field := range spec.fields {
+		if field.FieldID != unassignedFieldID {
+			if _, exists := assignedIds[field.FieldID]; exists {
+				return PartitionSpec{}, fmt.Errorf("duplicate field ID provided: %d", field.FieldID)
+			}
+			assignedIds[field.FieldID] = struct{}{}
+		}
+	}
+
+	// Efficiently find and assign IDs for any unassigned fields.
+	nextID := defaultStartingFieldID
+	for i := range spec.fields {
+		if spec.fields[i].FieldID == unassignedFieldID {
+			// Find the next available ID by incrementing from the last known good ID.
+			for {
+				if _, exists := assignedIds[nextID]; !exists {
+					break // Found an unused ID.
+				}
+				nextID++
+			}
+
+			// Assign the new ID and immediately record it as used.
+			spec.fields[i].FieldID = nextID
+			assignedIds[nextID] = struct{}{}
+		}
+	}
+
+	return spec, nil
 }
 
 func NewPartitionSpec(fields ...PartitionField) PartitionSpec {

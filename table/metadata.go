@@ -134,6 +134,8 @@ type Metadata interface {
 	NameMapping() iceberg.NameMapping
 
 	LastSequenceNumber() int64
+
+	FormatVersion() int
 }
 
 type MetadataBuilder struct {
@@ -164,6 +166,87 @@ type MetadataBuilder struct {
 	lastSequenceNumber *int64
 	// update tracking
 	lastAddedSchemaID *int
+}
+
+func NewMetadataBuilderFromPieces(schema *iceberg.Schema, spec iceberg.PartitionSpec, sortOrder SortOrder, location string, formatVersion int, properties map[string]string) (*MetadataBuilder, error) {
+	freshSchema, err := iceberg.AssignFreshSchemaIDs(schema, nil)
+	if err != nil {
+		return nil, err
+	}
+	freshSpec, err := iceberg.AssignFreshPartitionSpecIDs(&spec, schema, freshSchema)
+	if err != nil {
+		return nil, err
+	}
+	freshOrder, err := AssignFreshSortOrderIDs(sortOrder, schema, freshSchema)
+	if err != nil {
+		return nil, err
+	}
+	tableID, err := uuid.NewV7()
+	if err != nil {
+		return nil, err
+	}
+	var builder MetadataBuilder
+	if formatVersion == 1 {
+		// TODO: impl formatVersion1
+		// 		 ...
+	} else if formatVersion == 2 {
+		var metadata Metadata
+		metadata = &metadataV2{
+			LastSeqNum: 0,
+			commonMetadata: commonMetadata{
+				FormatVersion:      0,
+				UUID:               uuid.New(),
+				Loc:                "",
+				LastUpdatedMS:      0,
+				LastColumnId:       -1,
+				SchemaList:         nil,
+				CurrentSchemaID:    -1,
+				Specs:              nil,
+				DefaultSpecID:      0,
+				LastPartitionID:    nil,
+				Props:              nil,
+				SnapshotList:       nil,
+				CurrentSnapshotID:  nil,
+				SnapshotLog:        nil,
+				MetadataLog:        nil,
+				SortOrderList:      nil,
+				DefaultSortOrderID: 0,
+				SnapshotRefs:       nil,
+			},
+		}
+
+		specID := freshSpec.ID()
+		lastPartitionID := 999
+		builder = MetadataBuilder{
+			base:              metadata,
+			updates:           nil,
+			formatVersion:     0,
+			uuid:              tableID,
+			loc:               location,
+			lastUpdatedMS:     0,
+			lastColumnId:      0,
+			schemaList:        []*iceberg.Schema{freshSchema},
+			currentSchemaID:   freshSchema.ID,
+			specs:             []iceberg.PartitionSpec{freshSpec},
+			defaultSpecID:     &specID,
+			lastPartitionID:   &lastPartitionID,
+			props:             properties,
+			snapshotList:      []Snapshot{},
+			currentSnapshotID: nil,
+			snapshotLog:       []SnapshotLogEntry{},
+			metadataLog:       []MetadataLogEntry{},
+			sortOrderList: []SortOrder{
+				freshOrder,
+			},
+			defaultSortOrderID: freshOrder.OrderID,
+			refs:               nil,
+			lastSequenceNumber: nil,
+			lastAddedSchemaID:  nil,
+		}
+	} else {
+		return nil, fmt.Errorf("unknown format version %d", formatVersion)
+	}
+	return &builder, nil
 }
 
 func NewMetadataBuilder() (*MetadataBuilder, error) {
@@ -1184,6 +1267,10 @@ type metadataV1 struct {
 	commonMetadata
 }
 
+func (m *metadataV1) FormatVersion() int {
+	return 1
+}
+
 func (m *metadataV1) LastSequenceNumber() int64 { return 0 }
 
 func (m *metadataV1) Equals(other Metadata) bool {
@@ -1260,6 +1347,10 @@ type metadataV2 struct {
 	LastSeqNum int64 `json:"last-sequence-number"`
 
 	commonMetadata
+}
+
+func (m *metadataV2) FormatVersion() int {
+	return 2
 }
 
 func (m *metadataV2) LastSequenceNumber() int64 { return m.LastSeqNum }
