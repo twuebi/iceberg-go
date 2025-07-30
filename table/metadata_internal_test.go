@@ -767,7 +767,7 @@ func TestMetadataBuilderSetDefaultSpecIDLastPartition(t *testing.T) {
 	_, err = builder.SetDefaultSpecID(-1)
 	assert.NoError(t, err)
 
-	assert.Equal(t, 0, *builder.defaultSpecID)
+	assert.Equal(t, 0, builder.defaultSpecID)
 }
 
 func TestMetadataBuilderSetLastAddedSchema(t *testing.T) {

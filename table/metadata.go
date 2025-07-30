@@ -165,7 +165,8 @@ type MetadataBuilder struct {
 	// >v1 specific
 	lastSequenceNumber *int64
 	// update tracking
-	lastAddedSchemaID *int
+	lastAddedSchemaID    *int
+	lastAddedPartitionID *int
 }
 
 func NewMetadataBuilderFromPieces(schema *iceberg.Schema, spec iceberg.PartitionSpec, sortOrder SortOrder, location string, formatVersion int, properties map[string]string) (*MetadataBuilder, error) {
@@ -194,7 +195,7 @@ func NewMetadataBuilderFromPieces(schema *iceberg.Schema, spec iceberg.Partition
 		metadata = &metadataV2{
 			LastSeqNum: 0,
 			commonMetadata: commonMetadata{
-				FormatVersion:      0,
+				FormatVersion:      2,
 				UUID:               uuid.New(),
 				Loc:                "",
 				LastUpdatedMS:      0,
@@ -220,7 +221,7 @@ func NewMetadataBuilderFromPieces(schema *iceberg.Schema, spec iceberg.Partition
 		builder = MetadataBuilder{
 			base:              metadata,
 			updates:           nil,
-			formatVersion:     0,
+			formatVersion:     2,
 			uuid:              tableID,
 			loc:               location,
 			lastUpdatedMS:     0,
@@ -228,7 +229,7 @@ func NewMetadataBuilderFromPieces(schema *iceberg.Schema, spec iceberg.Partition
 			schemaList:        []*iceberg.Schema{freshSchema},
 			currentSchemaID:   freshSchema.ID,
 			specs:             []iceberg.PartitionSpec{freshSpec},
-			defaultSpecID:     &specID,
+			defaultSpecID:     specID,
 			lastPartitionID:   &lastPartitionID,
 			props:             properties,
 			snapshotList:      []Snapshot{},
@@ -373,6 +374,15 @@ func (b *MetadataBuilder) AddSchema(schema *iceberg.Schema) (*MetadataBuilder, e
 }
 
 func (b *MetadataBuilder) AddPartitionSpec(spec *iceberg.PartitionSpec, initial bool) (*MetadataBuilder, error) {
+	newSpecID := b.reuseOrCreateNewPartitionSpecID(*spec)
+	if _, err := b.GetSpecByID(newSpecID); err == nil {
+		if b.lastAddedPartitionID == nil || *b.lastAddedPartitionID != newSpecID {
+			b.updates = append(b.updates, NewAddPartitionSpecUpdate(spec, initial))
+			b.lastAddedPartitionID = &newSpecID
+		}
+		return b, nil
+	}
+	spec.SetID(newSpecID)
 	for _, s := range b.specs {
 		if s.ID() == spec.ID() && !initial {
 			return nil, fmt.Errorf("partition spec with id %d already exists", spec.ID())
@@ -399,6 +409,7 @@ func (b *MetadataBuilder) AddPartitionSpec(spec *iceberg.PartitionSpec, initial 
 
 	b.specs = specs
 	b.lastPartitionID = &lastPartitionID
+	b.lastAddedPartitionID = &newSpecID
 	b.updates = append(b.updates, NewAddPartitionSpecUpdate(spec, initial))
 
 	return b, nil
@@ -528,13 +539,12 @@ func (b *MetadataBuilder) SetDefaultSortOrderID(defaultSortOrderID int) (*Metada
 }
 
 func (b *MetadataBuilder) SetDefaultSpecID(defaultSpecID int) (*MetadataBuilder, error) {
+	lastUsed := false
 	if defaultSpecID == -1 {
-		defaultSpecID = maxBy(b.specs, func(s iceberg.PartitionSpec) int {
-			return s.ID()
-		})
-		if !slices.ContainsFunc(b.updates, func(u Update) bool {
-			return u.Action() == UpdateAddSpec && u.(*addPartitionSpecUpdate).Spec.ID() == defaultSpecID
-		}) {
+		if b.lastAddedPartitionID != nil {
+			lastUsed = true
+			defaultSpecID = *b.lastAddedPartitionID
+		} else {
 			return nil, errors.New("can't set default spec to last added with no added partition specs")
 		}
 	}
@@ -547,7 +557,11 @@ func (b *MetadataBuilder) SetDefaultSpecID(defaultSpecID int) (*MetadataBuilder,
 		return nil, fmt.Errorf("can't set default spec to spec with id %d: %w", defaultSpecID, err)
 	}
 
-	b.updates = append(b.updates, NewSetDefaultSpecUpdate(defaultSpecID))
+	if lastUsed {
+		b.updates = append(b.updates, NewSetDefaultSpecUpdate(-1))
+	} else {
+		b.updates = append(b.updates, NewSetDefaultSpecUpdate(defaultSpecID))
+	}
 	b.defaultSpecID = defaultSpecID
 
 	return b, nil
@@ -881,6 +895,20 @@ func (b *MetadataBuilder) Build() (Metadata, error) {
 	}
 }
 
+func (b *MetadataBuilder) reuseOrCreateNewPartitionSpecID(newSpec iceberg.PartitionSpec) int {
+	newSpecID := 0
+	for _, spec := range b.specs {
+		if spec.Equals(newSpec) {
+			return spec.ID()
+		}
+		if spec.ID() >= newSpecID {
+			newSpecID = spec.ID() + 1
+		}
+	}
+
+	return newSpecID
+}
+
 func (b *MetadataBuilder) reuseOrCreateNewSchemaID(newSchema *iceberg.Schema) int {
 	newSchemaID := newSchema.ID
 	for _, schema := range b.schemaList {
@@ -954,29 +982,6 @@ func sliceEqualHelper[T interface{ Equals(T) bool }](s1, s2 []T) bool {
 	return slices.EqualFunc(s1, s2, func(t1, t2 T) bool {
 		return t1.Equals(t2)
 	})
-}
-
-// slicesAreUnequal returns true if slices are different, treating nil and empty as equal.
-func slicesAreUnequal[T any](s1, s2 []T, eqFunc func([]T, []T) bool) bool {
-	if len(s1) != len(s2) {
-		return true // Unequal if lengths differ.
-	}
-	if len(s1) == 0 {
-		return false // Both are empty or nil, so they are equal.
-	}
-	// Lengths are the same and > 0, so do the full comparison.
-	return !eqFunc(s1, s2)
-}
-
-// mapsAreUnequal returns true if maps are different, treating nil and empty as equal.
-func mapsAreUnequal[K comparable, V any](m1, m2 map[K]V, eqFunc func(map[K]V, map[K]V) bool) bool {
-	if len(m1) != len(m2) {
-		return true
-	}
-	if len(m1) == 0 {
-		return false
-	}
-	return !eqFunc(m1, m2)
 }
 
 // https://iceberg.apache.org/spec/#iceberg-table-spec
