@@ -162,11 +162,13 @@ type MetadataBuilder struct {
 	defaultSortOrderID int
 	refs               map[string]SnapshotRef
 
+	previousFileEntry *MetadataLogEntry
 	// >v1 specific
 	lastSequenceNumber *int64
 	// update tracking
 	lastAddedSchemaID    *int
 	lastAddedPartitionID *int
+	lastAddedSortOrderID *int
 }
 
 func NewMetadataBuilderFromPieces(schema *iceberg.Schema, spec iceberg.PartitionSpec, sortOrder SortOrder, location string, formatVersion int, properties map[string]string) (*MetadataBuilder, error) {
@@ -216,34 +218,56 @@ func NewMetadataBuilderFromPieces(schema *iceberg.Schema, spec iceberg.Partition
 			},
 		}
 
-		specID := freshSpec.ID()
 		lastPartitionID := 999
 		builder = MetadataBuilder{
-			base:              metadata,
-			updates:           nil,
-			formatVersion:     2,
-			uuid:              tableID,
-			loc:               location,
-			lastUpdatedMS:     0,
-			lastColumnId:      0,
-			schemaList:        []*iceberg.Schema{freshSchema},
-			currentSchemaID:   freshSchema.ID,
-			specs:             []iceberg.PartitionSpec{freshSpec},
-			defaultSpecID:     specID,
-			lastPartitionID:   &lastPartitionID,
-			props:             properties,
-			snapshotList:      []Snapshot{},
-			currentSnapshotID: nil,
-			snapshotLog:       []SnapshotLogEntry{},
-			metadataLog:       []MetadataLogEntry{},
-			sortOrderList: []SortOrder{
-				freshOrder,
-			},
-			defaultSortOrderID: freshOrder.OrderID,
-			refs:               nil,
+			base:               metadata,
+			updates:            nil,
+			formatVersion:      2,
+			uuid:               tableID,
+			loc:                location,
+			lastUpdatedMS:      0,
+			lastColumnId:       0,
+			schemaList:         []*iceberg.Schema{},
+			currentSchemaID:    -1,
+			specs:              []iceberg.PartitionSpec{},
+			defaultSpecID:      -1,
+			lastPartitionID:    &lastPartitionID,
+			props:              properties,
+			snapshotList:       []Snapshot{},
+			currentSnapshotID:  nil,
+			snapshotLog:        []SnapshotLogEntry{},
+			metadataLog:        []MetadataLogEntry{},
+			sortOrderList:      []SortOrder{},
+			defaultSortOrderID: -1,
+			refs:               make(map[string]SnapshotRef),
 			lastSequenceNumber: nil,
 			lastAddedSchemaID:  nil,
 		}
+		builderRef, err := builder.AddSchema(freshSchema)
+		if err != nil {
+			return nil, err
+		}
+		_, err = builderRef.SetCurrentSchemaID(-1)
+		if err != nil {
+			return nil, err
+		}
+		_, err = builderRef.AddPartitionSpec(&freshSpec, true)
+		if err != nil {
+			return nil, err
+		}
+		_, err = builderRef.SetDefaultSpecID(-1)
+		if err != nil {
+			return nil, err
+		}
+		_, err = builderRef.AddSortOrder(&freshOrder, true)
+		if err != nil {
+			return nil, err
+		}
+		_, err = builderRef.SetDefaultSortOrderID(-1)
+		if err != nil {
+			return nil, err
+		}
+		builderRef.updates = make([]Update, 0)
 	} else {
 		return nil, fmt.Errorf("unknown format version %d", formatVersion)
 	}
@@ -264,7 +288,11 @@ func NewMetadataBuilder() (*MetadataBuilder, error) {
 	}, nil
 }
 
-func MetadataBuilderFromBase(metadata Metadata) (*MetadataBuilder, error) {
+// MetadataBuilderFromBase creates a MetadataBuilder from an existing Metadata object.
+// currentFileLocation is the location where the current version of the metadata
+// file is stored. This is used to update the metadata log. If currentFileLocation is
+// nil, the metadata log will not be updated. This should only be used to stage-create tables.
+func MetadataBuilderFromBase(metadata Metadata, currentFileLocation *string) (*MetadataBuilder, error) {
 	b := &MetadataBuilder{}
 	b.base = metadata
 
@@ -295,6 +323,14 @@ func MetadataBuilderFromBase(metadata Metadata) (*MetadataBuilder, error) {
 	b.refs = maps.Collect(metadata.Refs())
 	b.snapshotLog = slices.Collect(metadata.SnapshotLogs())
 	b.metadataLog = slices.Collect(metadata.PreviousFiles())
+
+	// TODO: this conflicts with `internal/utils.go`'s UpdateTableMetadata
+	if currentFileLocation != nil {
+		b.previousFileEntry = &MetadataLogEntry{
+			MetadataFile: *currentFileLocation,
+			TimestampMs:  metadata.LastUpdatedMillis(),
+		}
+	}
 
 	return b, nil
 }
@@ -375,6 +411,11 @@ func (b *MetadataBuilder) AddSchema(schema *iceberg.Schema) (*MetadataBuilder, e
 
 func (b *MetadataBuilder) AddPartitionSpec(spec *iceberg.PartitionSpec, initial bool) (*MetadataBuilder, error) {
 	newSpecID := b.reuseOrCreateNewPartitionSpecID(*spec)
+
+	if err := spec.AssignPartitionFieldIds(b.lastPartitionID); err != nil {
+		return nil, err
+	}
+
 	if _, err := b.GetSpecByID(newSpecID); err == nil {
 		if b.lastAddedPartitionID == nil || *b.lastAddedPartitionID != newSpecID {
 			b.updates = append(b.updates, NewAddPartitionSpecUpdate(spec, initial))
@@ -459,9 +500,24 @@ func (b *MetadataBuilder) RemoveSnapshots(snapshotIds []int64) (*MetadataBuilder
 }
 
 func (b *MetadataBuilder) AddSortOrder(sortOrder *SortOrder, initial bool) (*MetadataBuilder, error) {
+	newOrderID := b.reuseOrCreateNewSortOrderID(sortOrder)
+	if _, err := b.GetSortOrderByID(newOrderID); err == nil {
+		if b.lastAddedSortOrderID != &newOrderID {
+			b.lastAddedSortOrderID = &newOrderID
+			sortOrder.OrderID = newOrderID
+			b.updates = append(b.updates, NewAddSortOrderUpdate(sortOrder, initial))
+		}
+		return b, nil
+	}
+	sortOrder.OrderID = newOrderID
+
 	var sortOrders []SortOrder
 	if !initial {
 		sortOrders = append(sortOrders, b.sortOrderList...)
+	}
+
+	if err := sortOrder.CheckCompatibility(b.CurrentSchema()); err != nil {
+		return nil, fmt.Errorf("sort order %s is not compatible with current schema: %w", sortOrder, err)
 	}
 
 	for _, s := range sortOrders {
@@ -490,7 +546,8 @@ func (b *MetadataBuilder) RemoveProperties(keys []string) (*MetadataBuilder, err
 }
 
 func (b *MetadataBuilder) SetCurrentSchemaID(currentSchemaID int) (*MetadataBuilder, error) {
-	if currentSchemaID == -1 {
+	takeLast := currentSchemaID == -1
+	if takeLast {
 		if b.lastAddedSchemaID == nil {
 			return nil, errors.New("can't set current schema to last added schema, no schema has been added")
 		}
@@ -506,7 +563,11 @@ func (b *MetadataBuilder) SetCurrentSchemaID(currentSchemaID int) (*MetadataBuil
 		return nil, fmt.Errorf("can't set current schema to schema with id %d: %w", currentSchemaID, err)
 	}
 
-	b.updates = append(b.updates, NewSetCurrentSchemaUpdate(currentSchemaID))
+	if takeLast {
+		b.updates = append(b.updates, NewSetCurrentSchemaUpdate(-1))
+	} else {
+		b.updates = append(b.updates, NewSetCurrentSchemaUpdate(currentSchemaID))
+	}
 	b.currentSchemaID = currentSchemaID
 
 	return b, nil
@@ -756,7 +817,9 @@ func (b *MetadataBuilder) buildCommonMetadata() (*commonMetadata, error) {
 	if b.lastUpdatedMS == 0 {
 		b.lastUpdatedMS = time.Now().UnixMilli()
 	}
-
+	if b.previousFileEntry != nil {
+		b.metadataLog = append(b.metadataLog, *b.previousFileEntry)
+	}
 	return &commonMetadata{
 		FormatVersion:      b.formatVersion,
 		UUID:               b.uuid,
@@ -893,6 +956,24 @@ func (b *MetadataBuilder) Build() (Metadata, error) {
 	default:
 		return nil, fmt.Errorf("unknown format version %d", b.formatVersion)
 	}
+}
+
+func (b *MetadataBuilder) reuseOrCreateNewSortOrderID(newOrder *SortOrder) int {
+	if newOrder.IsUnsorted() {
+		return UnsortedSortOrder.OrderID
+	}
+
+	newOrderID := UnsortedSortOrderID + 1
+	for _, order := range b.sortOrderList {
+		if slices.Equal(order.Fields, newOrder.Fields) {
+			return order.OrderID
+		}
+		if order.OrderID >= newOrderID {
+			newOrderID = order.OrderID + 1
+		}
+	}
+
+	return newOrderID
 }
 
 func (b *MetadataBuilder) reuseOrCreateNewPartitionSpecID(newSpec iceberg.PartitionSpec) int {

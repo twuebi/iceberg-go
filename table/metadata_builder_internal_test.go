@@ -18,6 +18,7 @@
 package table
 
 import (
+	"fmt"
 	"github.com/apache/iceberg-go"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/google/go-cmp/cmp"
@@ -124,14 +125,14 @@ func TestBuildUnpartitionedUnsorted(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, meta)
 
-	require.Equal(t, meta.FormatVersion(), 2)
-	require.Equal(t, meta.Location, TestLocation)
-	require.Equal(t, meta.CurrentSchema().ID, 0)
-	require.Equal(t, meta.DefaultPartitionSpec(), 0)
-	require.Equal(t, meta.DefaultSortOrder(), 0)
-	require.Equal(t, meta.LastPartitionSpecID(), 999)
-	require.Equal(t, meta.LastColumnID(), 0)
-	require.Equal(t, len(meta.Snapshots()), 0)
+	require.Equal(t, 2, meta.FormatVersion())
+	require.Equal(t, TestLocation, meta.Location())
+	require.Equal(t, 0, meta.CurrentSchema().ID)
+	require.Equal(t, 0, meta.DefaultPartitionSpec())
+	require.Equal(t, 0, meta.DefaultSortOrder())
+	require.Equal(t, 999, *meta.LastPartitionSpecID())
+	require.Equal(t, 3, meta.LastColumnID())
+	require.Equal(t, 0, len(meta.Snapshots()))
 	require.Nil(t, meta.CurrentSnapshot())
 	for range meta.Refs() {
 		t.Fatalf("refs should be empty.")
@@ -140,8 +141,8 @@ func TestBuildUnpartitionedUnsorted(t *testing.T) {
 	for range meta.PreviousFiles() {
 		t.Fatalf("metadata log should be empty.")
 	}
-	require.Equal(t, meta.LastSequenceNumber(), 0)
-	require.Equal(t, meta.LastColumnID(), 0)
+	require.Equal(t, meta.LastSequenceNumber(), int64(0))
+	require.Equal(t, meta.LastColumnID(), 3)
 }
 
 // table_metadata_builder::test::test_reassigns_ids
@@ -177,11 +178,10 @@ func TestReassignIds(t *testing.T) {
 			Type:     iceberg.PrimitiveTypes.Int64,
 			Required: true,
 		})
-	spec, err := iceberg.NewPartitionSpecOpts(
-		iceberg.WithSpecID(20),
+
+	spec, err := iceberg.NewPartitionSpecOpts(iceberg.WithSpecID(20),
 		iceberg.AddPartitionFieldByName("a", "a", iceberg.IdentityTransform{}, schema, nil),
-		iceberg.AddPartitionFieldByName("struct.nested", "nested_partition", iceberg.IdentityTransform{}, schema, nil),
-	)
+		iceberg.AddPartitionFieldByName("struct.nested", "nested_partition", iceberg.IdentityTransform{}, schema, nil))
 
 	require.NoError(t, err)
 
@@ -239,12 +239,11 @@ func TestReassignIds(t *testing.T) {
 			Type:     iceberg.PrimitiveTypes.Int64,
 			Required: true,
 		})
-
-	expectedSpec, err := iceberg.NewPartitionSpecOpts(
-		iceberg.WithSpecID(0),
-		iceberg.AddPartitionFieldByName("a", "a", iceberg.IdentityTransform{}, expectedSchema, nil),
-		iceberg.AddPartitionFieldByName("struct.nested", "nested_partition", iceberg.IdentityTransform{}, expectedSchema, nil),
-	)
+	id := 1000
+	fieldID := 1001
+	expectedSpec, err := iceberg.NewPartitionSpecOpts(iceberg.WithSpecID(0),
+		iceberg.AddPartitionFieldByName("a", "a", iceberg.IdentityTransform{}, expectedSchema, &id),
+		iceberg.AddPartitionFieldByName("struct.nested", "nested_partition", iceberg.IdentityTransform{}, expectedSchema, &fieldID))
 
 	require.NoError(t, err)
 
@@ -269,11 +268,7 @@ func TestAddPartitionSpec(t *testing.T) {
 	builder := builderWithoutChanges(2)
 	builderRef := &builder
 	i := 1000
-	addedSpec, err := iceberg.NewPartitionSpecOpts(
-		iceberg.WithSpecID(10),
-		iceberg.AddPartitionFieldBySourceID(2, "y", iceberg.IdentityTransform{}, builder.schemaList[0], &i),
-		iceberg.AddPartitionFieldBySourceID(3, "z", iceberg.IdentityTransform{}, builder.schemaList[0], nil),
-	)
+	addedSpec, err := iceberg.NewPartitionSpecOpts(iceberg.WithSpecID(10), iceberg.AddPartitionFieldBySourceID(2, "y", iceberg.IdentityTransform{}, builder.schemaList[0], &i), iceberg.AddPartitionFieldBySourceID(3, "z", iceberg.IdentityTransform{}, builder.schemaList[0], nil))
 	require.NoError(t, err)
 
 	builderRef, err = builderRef.AddPartitionSpec(&addedSpec, false)
@@ -283,13 +278,9 @@ func TestAddPartitionSpec(t *testing.T) {
 	require.NotNil(t, metadata)
 
 	i2 := 1001
-	expectedSpec, err := iceberg.NewPartitionSpecOpts(
-		iceberg.WithSpecID(1),
-		iceberg.AddPartitionFieldBySourceID(2, "y", iceberg.IdentityTransform{}, builder.schemaList[0], &i),
-		iceberg.AddPartitionFieldBySourceID(3, "z", iceberg.IdentityTransform{}, builder.schemaList[0], &i2),
-	)
+	expectedSpec, err := iceberg.NewPartitionSpecOpts(iceberg.WithSpecID(1), iceberg.AddPartitionFieldBySourceID(2, "y", iceberg.IdentityTransform{}, builder.schemaList[0], &i), iceberg.AddPartitionFieldBySourceID(3, "z", iceberg.IdentityTransform{}, builder.schemaList[0], &i2))
 	require.Equal(t, metadata.DefaultPartitionSpec(), 0)
-	require.Equal(t, metadata.LastPartitionSpecID(), &i2)
+	require.Equal(t, *metadata.LastPartitionSpecID(), i2)
 	found := false
 	for _, part := range metadata.PartitionSpecs() {
 		if part.ID() == 1 {
@@ -322,9 +313,7 @@ func TestSetDefaultPartitionSpec(t *testing.T) {
 	curSchema, err := builder.GetSchemaByID(builder.currentSchemaID)
 	require.NoError(t, err)
 	// Add a partition spec
-	addedSpec, err := iceberg.NewPartitionSpecOpts(
-		iceberg.WithSpecID(10),
-		iceberg.AddPartitionFieldBySourceID(1, "y_bucket[2]", iceberg.BucketTransform{NumBuckets: 2}, curSchema, nil))
+	addedSpec, err := iceberg.NewPartitionSpecOpts(iceberg.WithSpecID(10), iceberg.AddPartitionFieldBySourceID(1, "y_bucket[2]", iceberg.BucketTransform{NumBuckets: 2}, curSchema, nil))
 	require.NoError(t, err)
 	builderRef, err := builder.AddPartitionSpec(&addedSpec, false)
 	require.NoError(t, err)
@@ -333,9 +322,7 @@ func TestSetDefaultPartitionSpec(t *testing.T) {
 	require.NoError(t, err)
 
 	id := 1001
-	expectedSpec, err := iceberg.NewPartitionSpecOpts(
-		iceberg.WithSpecID(1),
-		iceberg.AddPartitionFieldBySourceID(1, "y_bucket[2]", iceberg.BucketTransform{NumBuckets: 2}, curSchema, &id))
+	expectedSpec, err := iceberg.NewPartitionSpecOpts(iceberg.WithSpecID(1), iceberg.AddPartitionFieldBySourceID(1, "y_bucket[2]", iceberg.BucketTransform{NumBuckets: 2}, curSchema, &id))
 	require.True(t, builderRef.HasChanges())
 	require.Equal(t, len(builderRef.updates), 2)
 	require.True(t, builderRef.updates[0].(*addPartitionSpecUpdate).Spec.Equals(addedSpec))
@@ -345,7 +332,7 @@ func TestSetDefaultPartitionSpec(t *testing.T) {
 	require.NotNil(t, metadata)
 
 	require.Equal(t, metadata.DefaultPartitionSpec(), 1)
-	require.True(t, expectedSpec.Equals(metadata.PartitionSpec()), "expected partition spec to match added spec")
+	require.True(t, expectedSpec.Equals(metadata.PartitionSpec()), fmt.Sprintf("expected partition spec to match added spec %s, %s", spew.Sdump(expectedSpec), spew.Sdump(metadata.PartitionSpec())))
 	require.Equal(t, *metadata.LastPartitionSpecID(), 1001)
 }
 
@@ -355,9 +342,7 @@ func TestSetExistingDefaultPartitionSpec(t *testing.T) {
 	curSchema, err := builder.GetSchemaByID(builder.currentSchemaID)
 	require.NoError(t, err)
 
-	addedSpec, err := iceberg.NewPartitionSpecOpts(
-		iceberg.WithSpecID(10),
-		iceberg.AddPartitionFieldBySourceID(1, "y_bucket[2]", iceberg.BucketTransform{NumBuckets: 2}, curSchema, nil))
+	addedSpec, err := iceberg.NewPartitionSpecOpts(iceberg.WithSpecID(10), iceberg.AddPartitionFieldBySourceID(1, "y_bucket[2]", iceberg.BucketTransform{NumBuckets: 2}, curSchema, nil))
 	require.NoError(t, err)
 
 	builderRef, err := builder.AddPartitionSpec(&addedSpec, false)
@@ -379,16 +364,14 @@ func TestSetExistingDefaultPartitionSpec(t *testing.T) {
 	require.Equal(t, 1, metadata.DefaultPartitionSpec())
 
 	id := 1001
-	expectedSpec, err := iceberg.NewPartitionSpecOpts(
-		iceberg.WithSpecID(1),
-		iceberg.AddPartitionFieldBySourceID(1, "y_bucket[2]", iceberg.BucketTransform{NumBuckets: 2}, curSchema, &id))
+	expectedSpec, err := iceberg.NewPartitionSpecOpts(iceberg.WithSpecID(1), iceberg.AddPartitionFieldBySourceID(1, "y_bucket[2]", iceberg.BucketTransform{NumBuckets: 2}, curSchema, &id))
 	require.NoError(t, err)
 	require.True(t, expectedSpec.Equals(metadata.PartitionSpec()), "expected partition spec to match added spec")
 
 	// ---
 
 	// Arrange: Create a new builder from the previously built metadata.
-	newBuilder, err := MetadataBuilderFromBase(metadata)
+	newBuilder, err := MetadataBuilderFromBase(metadata, nil)
 	require.NoError(t, err)
 	require.NotNil(t, newBuilder)
 
@@ -408,4 +391,266 @@ func TestSetExistingDefaultPartitionSpec(t *testing.T) {
 
 	newWithoutChanges := builderWithoutChanges(2)
 	require.True(t, newWithoutChanges.specs[0].Equals(newBuild.PartitionSpec()), "expected partition spec to match added spec")
+}
+
+func TestAddSortOrder(t *testing.T) {
+	builder := builderWithoutChanges(2)
+	addedSortOrder := SortOrder{
+		OrderID: 10,
+		Fields: []SortField{
+			{
+				SourceID:  1,
+				Transform: iceberg.IdentityTransform{},
+				Direction: SortASC,
+				NullOrder: NullsFirst,
+			},
+		},
+	}
+	s := schema()
+	err := addedSortOrder.CheckCompatibility(&s)
+	require.NoError(t, err)
+	builderRef, err := builder.AddSortOrder(&addedSortOrder, false)
+	require.NoError(t, err)
+	require.NotNil(t, builderRef)
+	expectedSortOrder := SortOrder{
+		OrderID: 2,
+		Fields: []SortField{
+			{
+				SourceID:  1,
+				Transform: iceberg.IdentityTransform{},
+				Direction: SortASC,
+				NullOrder: NullsFirst,
+			},
+		},
+	}
+	require.True(t, builderRef.HasChanges())
+	require.Equal(t, len(builderRef.updates), 1)
+	i := 0
+	for _, order := range builderRef.sortOrderList {
+		if order.OrderID > i {
+			i = order.OrderID
+		}
+	}
+	require.Equal(t, 2, i, "expected max sort order to be 2")
+	sO, err := builderRef.GetSortOrderByID(2)
+	require.NoError(t, err)
+	require.True(t, sO.Equals(expectedSortOrder))
+	order := sortOrder()
+	update := NewAddSortOrderUpdate(
+		&order, false)
+	require.Equal(t, update.Action(), builderRef.updates[0].Action())
+}
+
+func TestAddCompatibleSchema(t *testing.T) {
+	builder := builderWithoutChanges(2)
+	addedSchema := iceberg.NewSchema(1, iceberg.NestedField{
+		ID:       1,
+		Name:     "x",
+		Type:     iceberg.PrimitiveTypes.Int64,
+		Required: true,
+	}, iceberg.NestedField{
+		ID:       2,
+		Name:     "y",
+		Type:     iceberg.PrimitiveTypes.Int64,
+		Required: true,
+	}, iceberg.NestedField{
+		ID:       3,
+		Name:     "z",
+		Type:     iceberg.PrimitiveTypes.Int64,
+		Required: true,
+	}, iceberg.NestedField{
+		ID:       4,
+		Name:     "a",
+		Type:     iceberg.PrimitiveTypes.Int64,
+		Required: true,
+	})
+
+	builderRef, err := builder.AddSchema(addedSchema)
+	require.NoError(t, err)
+	require.NotNil(t, builderRef)
+	_, err = builderRef.SetCurrentSchemaID(-1)
+	require.NoError(t, err)
+	require.True(t, builderRef.HasChanges())
+	require.Equal(t, len(builderRef.updates), 2)
+
+	require.Equal(t, 1, builderRef.currentSchemaID)
+	curSchema, err := builderRef.GetSchemaByID(builderRef.currentSchemaID)
+	require.NoError(t, err)
+	require.True(t, curSchema.Equals(addedSchema), "expected schema to match added schema")
+	update := NewAddSchemaUpdate(addedSchema)
+	require.Equal(t, builderRef.updates[0].Action(), update.Action())
+	require.True(t, builderRef.updates[0].(*addSchemaUpdate).Schema.Equals(addedSchema), "expected schema to match added schema")
+	require.Equal(t, builderRef.updates[1].(*setCurrentSchemaUpdate).SchemaID, -1)
+}
+
+func TestNoMetadataLogForCreateTable(t *testing.T) {
+	builder := builderWithoutChanges(2)
+	meta, err := builder.Build()
+	require.NoError(t, err)
+	require.NotNil(t, meta)
+	for thing := range meta.PreviousFiles() {
+		require.FailNow(t, "expected no metadata log files, but got: %s", thing)
+	}
+}
+
+func TestFromMetadataCreatesLogEntry(t *testing.T) {
+	builder := builderWithoutChanges(2)
+	meta, err := builder.Build()
+	require.NoError(t, err)
+	require.NotNil(t, meta)
+
+	// Create a new builder from the metadata
+	loc := "s3://bla"
+	newBuilder, err := MetadataBuilderFromBase(meta, &loc)
+	require.NoError(t, err)
+	require.NotNil(t, newBuilder)
+
+	_, err = newBuilder.AddSortOrder(&UnsortedSortOrder, false)
+	require.NoError(t, err)
+
+	// Build the metadata again
+	newMeta, err := newBuilder.Build()
+	require.NoError(t, err)
+	require.NotNil(t, newMeta)
+
+	// Check that the metadata log has one entry
+	require.Len(t, newMeta.(*metadataV2).MetadataLog, 1)
+	require.Equal(t, newMeta.(*metadataV2).MetadataLog[0].MetadataFile, loc)
+}
+
+func TestSetRef(t *testing.T) {
+	builder := builderWithoutChanges(2)
+	schemaID := 0
+	snapshot := Snapshot{
+		SnapshotID:       1,
+		ParentSnapshotID: nil,
+		SequenceNumber:   0,
+		TimestampMs:      builder.lastUpdatedMS + 1,
+		ManifestList:     "/snap-1.avro",
+		Summary: &Summary{
+			Operation: OpAppend,
+			Properties: map[string]string{
+				"spark.app.id":     "local-1662532784305",
+				"added-data-files": "4",
+				"added-records":    "4",
+				"added-files-size": "6001"},
+		},
+		SchemaID: &schemaID,
+	}
+	_, err := builder.AddSnapshot(&snapshot)
+	require.NoError(t, err)
+	_, err = builder.SetSnapshotRef(MainBranch, 10, BranchRef, WithMinSnapshotsToKeep(10))
+	require.ErrorContains(t, err, "can't set snapshot ref main to unknown snapshot 10: snapshot with id 10 not found")
+	_, err = builder.SetSnapshotRef(MainBranch, 1, BranchRef, WithMinSnapshotsToKeep(10))
+	require.NoError(t, err)
+	require.Len(t, builder.snapshotList, 1)
+	snap, err := builder.SnapshotByID(1)
+	require.NoError(t, err)
+	require.NotNil(t, snap)
+	require.Equal(t, snap.SnapshotID, int64(1))
+	require.True(t, snap.Equals(snapshot), "expected snapshot to match added snapshot")
+	require.Len(t, builder.snapshotLog, 1)
+}
+
+func TestSnapshotLogSkipsIntermediate(t *testing.T) {
+	builder := builderWithoutChanges(2)
+	schemaID := 0
+	snapshot1 := Snapshot{
+		SnapshotID:       1,
+		ParentSnapshotID: nil,
+		SequenceNumber:   0,
+		TimestampMs:      builder.lastUpdatedMS + 1,
+		ManifestList:     "/snap-1.avro",
+		Summary: &Summary{
+			Operation: OpAppend,
+			Properties: map[string]string{
+				"spark.app.id":     "local-1662532784305",
+				"added-data-files": "4",
+				"added-records":    "4",
+				"added-files-size": "6001"},
+		},
+		SchemaID: &schemaID,
+	}
+
+	snapshot2 := Snapshot{
+		SnapshotID:       2,
+		ParentSnapshotID: nil,
+		SequenceNumber:   0,
+		TimestampMs:      builder.lastUpdatedMS + 1,
+		ManifestList:     "/snap-1.avro",
+		Summary: &Summary{
+			Operation: OpAppend,
+			Properties: map[string]string{
+				"spark.app.id":     "local-1662532784305",
+				"added-data-files": "4",
+				"added-records":    "4",
+				"added-files-size": "6001"},
+		},
+		SchemaID: &schemaID,
+	}
+	_, err := builder.AddSnapshot(&snapshot1)
+	require.NoError(t, err)
+	_, err = builder.SetSnapshotRef(MainBranch, 1, BranchRef, WithMinSnapshotsToKeep(10))
+	require.NoError(t, err)
+
+	_, err = builder.AddSnapshot(&snapshot2)
+	require.NoError(t, err)
+	_, err = builder.SetSnapshotRef(MainBranch, 2, BranchRef, WithMinSnapshotsToKeep(10))
+	require.NoError(t, err)
+
+	require.NoError(t, err)
+
+	res, err := builder.Build()
+	require.NoError(t, err)
+	require.NotNil(t, res)
+	// Intermediate snapshots are currently not skipped and we fail, cf. Rust TableMetadataBuilder::build() : update_snapshot_log
+	require.Len(t, res.(*metadataV2).SnapshotLog, 1)
+	snap := res.(*metadataV2).SnapshotLog[0]
+	require.NotNil(t, snap)
+	require.Equal(t, snap.SnapshotID, int64(1))
+	require.Equal(t, snap, SnapshotLogEntry{
+		SnapshotID:  2,
+		TimestampMs: snapshot2.TimestampMs,
+	}, "expected snapshot to match added snapshot")
+	require.True(t, res.CurrentSnapshot().Equals(snapshot2))
+}
+
+func TestSetBranchSnapshotCreatesBranchIfNotExists(t *testing.T) {
+	builder := builderWithoutChanges(2)
+	schemaID := 0
+	snapshot := Snapshot{
+		SnapshotID:       2,
+		ParentSnapshotID: nil,
+		SequenceNumber:   0,
+		TimestampMs:      builder.lastUpdatedMS + 1,
+		ManifestList:     "/snap-1.avro",
+		Summary: &Summary{
+			Operation: OpAppend,
+			Properties: map[string]string{
+				"spark.app.id":     "local-1662532784305",
+				"added-data-files": "4",
+				"added-records":    "4",
+				"added-files-size": "6001"},
+		},
+		SchemaID: &schemaID,
+	}
+
+	_, err := builder.AddSnapshot(&snapshot)
+	require.NoError(t, err)
+	_, err = builder.SetSnapshotRef("new_branch", 2, BranchRef)
+	require.NoError(t, err)
+
+	meta, err := builder.Build()
+	require.NoError(t, err)
+	require.NotNil(t, meta)
+	// Check that the branch was created
+	ref := meta.(*metadataV2).SnapshotRefs["new_branch"]
+	require.Len(t, meta.(*metadataV2).SnapshotRefs, 1)
+	require.Equal(t, ref.SnapshotID, int64(2))
+	require.Equal(t, ref.SnapshotRefType, BranchRef)
+	require.True(t, builder.updates[0].(*addSnapshotUpdate).Snapshot.Equals(snapshot))
+	require.Equal(t, builder.updates[1].(*setSnapshotRefUpdate).RefName, "new_branch")
+	require.Equal(t, builder.updates[1].(*setSnapshotRefUpdate).RefType, "branch")
+	require.Equal(t, builder.updates[1].(*setSnapshotRefUpdate).SnapshotID, 2)
+
 }

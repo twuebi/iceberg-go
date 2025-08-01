@@ -74,7 +74,7 @@ func WriteMetadata(ctx context.Context, metadata table.Metadata, loc string, pro
 }
 
 func UpdateTableMetadata(base table.Metadata, updates []table.Update, metadataLoc string) (table.Metadata, error) {
-	bldr, err := table.MetadataBuilderFromBase(base)
+	bldr, err := table.MetadataBuilderFromBase(base, nil)
 	if err != nil {
 		return nil, err
 	}
