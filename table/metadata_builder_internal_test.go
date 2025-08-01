@@ -24,6 +24,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/stretchr/testify/require"
 	"testing"
+	"time"
 )
 
 func schema() iceberg.Schema {
@@ -264,7 +265,7 @@ func TestReassignIds(t *testing.T) {
 	require.True(t, expectedSortOrder.Equals(meta.sortOrderList[0]))
 }
 
-func TestAddPartitionSpec(t *testing.T) {
+func TestAddRemovePartitionSpec(t *testing.T) {
 	builder := builderWithoutChanges(2)
 	builderRef := &builder
 	i := 1000
@@ -290,22 +291,19 @@ func TestAddPartitionSpec(t *testing.T) {
 	}
 	require.True(t, found, "expected partition spec to be added")
 
-	// newBuilder := MetadataBuilderFromBase(metadata)
-	// TODO: add remove_partition_spec method to MetadataBuilder
+	newBuilder, err := MetadataBuilderFromBase(metadata, nil)
+	require.NoError(t, err)
 	// Remove the spec
-	//let build_result = build_result
-	//.metadata
-	//.into_builder(Some(
-	//	"s3://bucket/test/location/metadata/metadata1.json".to_string(),
-	//))
-	//.remove_partition_specs(&[1])
-	//.unwrap()
-	//.build()
-	//.unwrap();
-	//
-	//assert_eq!(build_result.changes.len(), 1);
-	//assert_eq!(build_result.metadata.partition_specs.len(), 1);
-	//assert!(build_result.metadata.partition_spec_by_id(1).is_none());
+	newBuilderRef, err := newBuilder.RemovePartitionSpecs([]int{1})
+	require.NoError(t, err)
+	newBuild, err := newBuilderRef.Build()
+	require.NoError(t, err)
+	require.NotNil(t, newBuild)
+	require.Len(t, newBuilder.updates, 1)
+	require.Len(t, newBuild.PartitionSpecs(), 1, "%d %d", newBuild.PartitionSpecs()[0].ID(), newBuild.PartitionSpecs()[1].ID())
+	_, err = newBuilder.GetSpecByID(1)
+	require.ErrorIs(t, fmt.Errorf("partition spec with id %d not found", 1), err)
+
 }
 
 func TestSetDefaultPartitionSpec(t *testing.T) {
@@ -646,12 +644,12 @@ func TestSetBranchSnapshotCreatesBranchIfNotExists(t *testing.T) {
 	// Check that the branch was created
 	ref := meta.(*metadataV2).SnapshotRefs["new_branch"]
 	require.Len(t, meta.(*metadataV2).SnapshotRefs, 1)
-	require.Equal(t, ref.SnapshotID, int64(2))
-	require.Equal(t, ref.SnapshotRefType, BranchRef)
+	require.Equal(t, int64(2), ref.SnapshotID)
+	require.Equal(t, BranchRef, ref.SnapshotRefType)
 	require.True(t, builder.updates[0].(*addSnapshotUpdate).Snapshot.Equals(snapshot))
-	require.Equal(t, builder.updates[1].(*setSnapshotRefUpdate).RefName, "new_branch")
-	require.Equal(t, builder.updates[1].(*setSnapshotRefUpdate).RefType, BranchRef)
-	require.Equal(t, builder.updates[1].(*setSnapshotRefUpdate).SnapshotID, 2)
+	require.Equal(t, "new_branch", builder.updates[1].(*setSnapshotRefUpdate).RefName)
+	require.Equal(t, BranchRef, builder.updates[1].(*setSnapshotRefUpdate).RefType)
+	require.Equal(t, int64(2), builder.updates[1].(*setSnapshotRefUpdate).SnapshotID)
 }
 
 func TestCannotAddDuplicateSnapshotID(t *testing.T) {
@@ -676,13 +674,15 @@ func TestCannotAddDuplicateSnapshotID(t *testing.T) {
 	_, err := builder.AddSnapshot(&snapshot)
 	require.NoError(t, err)
 	_, err = builder.AddSnapshot(&snapshot)
-	require.ErrorContains(t, err, "snapshot with id 2 already exists")
+	require.ErrorContains(t, err, "can't add snapshot with id 2, already exists")
 }
 
 func TestAddIncompatibleCurrentSchemaFails(t *testing.T) {
 	builder := builderWithoutChanges(2)
 	addedSchema := iceberg.NewSchema(1)
 	_, err := builder.AddSchema(addedSchema)
+	require.NoError(t, err)
+	_, err = builder.SetCurrentSchemaID(1)
 	require.ErrorContains(t, err, "Cannot find partition source field")
 }
 
@@ -777,6 +777,74 @@ func TestV2SequenceNumberCannotDecrease(t *testing.T) {
 func TestDefaultSpecCannotBeRemoved(t *testing.T) {
 	builder := builderWithoutChanges(2)
 
-	err := builder.RemovePartitionSpecs([]int{0})
-	require.Error(t, err)
+	_, err := builder.RemovePartitionSpecs([]int{0})
+	require.ErrorContains(t, err, "Cannot remove default partition spec with ID 0")
+}
+
+func TestStatistics(t *testing.T) {
+	// FIXME: iceberg-go cannot do statistics yet, so this test is not implemented
+}
+
+func TestAddPartitionStatistics(t *testing.T) {
+	// FIXME: iceberg-go cannot do statistics yet, so this test is not implemented
+}
+
+func TestLastUpdateIncreasedForPropertyOnlyUpdate(t *testing.T) {
+	builder := builderWithoutChanges(2)
+	meta, err := builder.Build()
+	require.NoError(t, err)
+	lastUpdatedMS := builder.lastUpdatedMS
+	time.Sleep(2 * time.Millisecond)
+	// Set a property
+
+	location := "some-location"
+	newBuilder, err := MetadataBuilderFromBase(meta, &location)
+	require.NoError(t, err)
+
+	_, err = newBuilder.SetProperties(map[string]string{
+		"foo": "bar",
+	})
+	require.NoError(t, err)
+	newMeta, err := newBuilder.Build()
+	require.NoError(t, err)
+	require.NotNil(t, newMeta)
+
+	// Check that the last updated timestamp has increased
+	require.Greater(t, newMeta.LastUpdatedMillis(), lastUpdatedMS, "expected last updated timestamp to increase after property update")
+}
+
+func TestConstructDefaultMainBranch(t *testing.T) {
+	// TODO: Not sure what this test is supposed to do Rust: `test_construct_default_main_branch`
+	builder := builderWithoutChanges(2)
+	meta, err := builder.Build()
+	require.NoError(t, err)
+	require.NotNil(t, meta)
+
+	require.Equal(t, meta.(*metadataV2).SnapshotRefs[MainBranch].SnapshotID, meta.CurrentSnapshot().SnapshotID)
+}
+
+func TestActiveSchemaCannotBeRemoved(t *testing.T) {
+	builder := builderWithoutChanges(2)
+
+	// Try to remove the current schema
+	_, err := builder.RemoveSchemas([]int{0})
+	require.ErrorContains(t, err, "Cannot remove active schema with ID 0")
+}
+
+func TestRemoveSchemas(t *testing.T) {
+	meta, err := getTestTableMetadata("TableMetadataV2Valid.json")
+	require.NoError(t, err)
+	require.Len(t, meta.Schemas(), 2, "expected 2 schemas in the metadata")
+	builder, err := MetadataBuilderFromBase(meta, nil)
+	require.NoError(t, err)
+	_, err = builder.RemoveSchemas([]int{0})
+	require.NoError(t, err, "expected to remove schema with ID 1")
+	newMeta, err := builder.Build()
+	require.NoError(t, err)
+	require.Len(t, newMeta.Schemas(), 1, "expected 1 schema in the metadata after removal")
+	require.Equal(t, 1, newMeta.CurrentSchema().ID, "expected current schema to be 1")
+	require.Equal(t, 1, newMeta.(*metadataV2).CurrentSchemaID)
+	require.Len(t, builder.updates, 1, "expected one update for schema removal")
+	require.Equal(t, builder.updates[0].Action(), UpdateRemoveSchemas)
+	require.Equal(t, builder.updates[0].(*removeSchemasUpdate).SchemaIDs, []int{0}, "expected schema ID 0 to be removed")
 }

@@ -382,11 +382,6 @@ func (b *MetadataBuilder) currentSnapshot() *Snapshot {
 }
 
 func (b *MetadataBuilder) AddSchema(schema *iceberg.Schema) (*MetadataBuilder, error) {
-	newLastColumnID := schema.HighestFieldID()
-	if newLastColumnID < b.lastColumnId {
-		return nil, fmt.Errorf("%w: newLastColumnID %d, must be >= %d", iceberg.ErrInvalidArgument, newLastColumnID, b.lastColumnId)
-	}
-
 	newSchemaID := b.reuseOrCreateNewSchemaID(schema)
 
 	if _, err := b.GetSchemaByID(newSchemaID); err == nil {
@@ -1022,6 +1017,34 @@ func (b *MetadataBuilder) RemovePartitionSpecs(ints []int) (*MetadataBuilder, er
 	if len(removed) != 0 {
 		b.updates = append(b.updates, NewRemoveSpecUpdate(ints))
 	}
+
+	return b, nil
+}
+
+func (b *MetadataBuilder) RemoveSchemas(ints []int) (*MetadataBuilder, error) {
+	if len(ints) == 0 {
+		return b, nil
+	}
+
+	if slices.Contains(ints, b.currentSchemaID) {
+		return nil, fmt.Errorf("can't remove current schema with id %d", b.currentSchemaID)
+	}
+
+	newSchemas := make([]*iceberg.Schema, 0, len(b.schemaList)-len(ints))
+	removed := make([]int, len(ints))
+	for _, schema := range b.schemaList {
+		if slices.Contains(ints, schema.ID) {
+			removed = append(removed, schema.ID)
+			continue
+		}
+		newSchemas = append(newSchemas, schema)
+	}
+
+	if len(removed) != 0 {
+		b.updates = append(b.updates, NewRemoveSchemasUpdate(ints))
+	}
+
+	b.schemaList = newSchemas
 
 	return b, nil
 }
