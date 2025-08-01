@@ -1004,6 +1004,28 @@ func (b *MetadataBuilder) reuseOrCreateNewSchemaID(newSchema *iceberg.Schema) in
 	return newSchemaID
 }
 
+func (b *MetadataBuilder) RemovePartitionSpecs(ints []int) (*MetadataBuilder, error) {
+	if slices.Contains(ints, b.defaultSpecID) {
+		return nil, fmt.Errorf("can't remove default partition spec with id %d", b.defaultSpecID)
+	}
+
+	newSpecs := make([]iceberg.PartitionSpec, 0, len(b.specs)-len(ints))
+	removed := make([]int, len(ints))
+	for _, spec := range b.specs {
+		if slices.Contains(ints, spec.ID()) {
+			removed = append(removed, spec.ID())
+			continue
+		}
+		newSpecs = append(newSpecs, spec)
+	}
+
+	if len(removed) != 0 {
+		b.updates = append(b.updates, NewRemoveSpecUpdate(ints))
+	}
+
+	return b, nil
+}
+
 // maxBy returns the maximum value of extract(e) for all e in elems.
 // If elems is empty, returns 0.
 func maxBy[S ~[]E, E any](elems S, extract func(e E) int) int {

@@ -650,7 +650,133 @@ func TestSetBranchSnapshotCreatesBranchIfNotExists(t *testing.T) {
 	require.Equal(t, ref.SnapshotRefType, BranchRef)
 	require.True(t, builder.updates[0].(*addSnapshotUpdate).Snapshot.Equals(snapshot))
 	require.Equal(t, builder.updates[1].(*setSnapshotRefUpdate).RefName, "new_branch")
-	require.Equal(t, builder.updates[1].(*setSnapshotRefUpdate).RefType, "branch")
+	require.Equal(t, builder.updates[1].(*setSnapshotRefUpdate).RefType, BranchRef)
 	require.Equal(t, builder.updates[1].(*setSnapshotRefUpdate).SnapshotID, 2)
+}
 
+func TestCannotAddDuplicateSnapshotID(t *testing.T) {
+	builder := builderWithoutChanges(2)
+	schemaID := 0
+	snapshot := Snapshot{
+		SnapshotID:       2,
+		ParentSnapshotID: nil,
+		SequenceNumber:   0,
+		TimestampMs:      builder.lastUpdatedMS + 1,
+		ManifestList:     "/snap-1.avro",
+		Summary: &Summary{
+			Operation: OpAppend,
+			Properties: map[string]string{
+				"spark.app.id":     "local-1662532784305",
+				"added-data-files": "4",
+				"added-records":    "4",
+				"added-files-size": "6001"},
+		},
+		SchemaID: &schemaID,
+	}
+	_, err := builder.AddSnapshot(&snapshot)
+	require.NoError(t, err)
+	_, err = builder.AddSnapshot(&snapshot)
+	require.ErrorContains(t, err, "snapshot with id 2 already exists")
+}
+
+func TestAddIncompatibleCurrentSchemaFails(t *testing.T) {
+	builder := builderWithoutChanges(2)
+	addedSchema := iceberg.NewSchema(1)
+	_, err := builder.AddSchema(addedSchema)
+	require.ErrorContains(t, err, "Cannot find partition source field")
+}
+
+func TestAddPartitionSpecForV1RequiresSequentialIDs(t *testing.T) {
+	builder := builderWithoutChanges(1)
+
+	// Add a partition spec with non-sequential IDs
+	id := 1000
+	id2 := 1002
+	addedSpec, err := iceberg.NewPartitionSpecOpts(iceberg.WithSpecID(10),
+		iceberg.AddPartitionFieldBySourceID(2, "y", iceberg.IdentityTransform{}, builder.CurrentSchema(), &id),
+		iceberg.AddPartitionFieldBySourceID(3, "z", iceberg.IdentityTransform{}, builder.CurrentSchema(), &id2))
+	require.NoError(t, err)
+
+	_, err = builder.AddPartitionSpec(&addedSpec, false)
+	require.ErrorContains(t, err, "Partition spec ID must be sequential for format version 1")
+}
+
+func TestExpireMetadataLog(t *testing.T) {
+	builder := builderWithoutChanges(2)
+	_, err := builder.SetProperties(map[string]string{
+		MetadataPreviousVersionsMaxKey: "2",
+	})
+	require.NoError(t, err)
+	require.Len(t, builder.metadataLog, 1)
+	meta, err := builder.Build()
+	require.Len(t, meta.(*metadataV2).MetadataLog, 1)
+
+	location := "p"
+	newBuilder, err := MetadataBuilderFromBase(meta, &location)
+	require.NoError(t, err)
+	_, err = newBuilder.SetProperties(map[string]string{
+		"change_nr": "1",
+	})
+	require.NoError(t, err)
+	require.Len(t, newBuilder.metadataLog, 2)
+	meta, err = newBuilder.Build()
+	require.NoError(t, err)
+	require.Len(t, meta.(*metadataV2).MetadataLog, 2)
+
+	newBuilder, err = MetadataBuilderFromBase(meta, &location)
+	require.NoError(t, err)
+	_, err = newBuilder.SetProperties(map[string]string{
+		"change_nr": "2",
+	})
+	require.NoError(t, err)
+	require.Len(t, newBuilder.metadataLog, 3)
+	meta, err = newBuilder.Build()
+	require.NoError(t, err)
+	require.Len(t, meta.(*metadataV2).MetadataLog, 2)
+}
+
+func TestV2SequenceNumberCannotDecrease(t *testing.T) {
+	builder := builderWithoutChanges(2)
+	schemaID := 0
+	snapshot1 := Snapshot{
+		SnapshotID:       1,
+		ParentSnapshotID: nil,
+		SequenceNumber:   1,
+		TimestampMs:      builder.lastUpdatedMS + 1,
+		ManifestList:     "/snap-1.avro",
+		Summary: &Summary{
+			Operation:  OpAppend,
+			Properties: map[string]string{},
+		},
+		SchemaID: &schemaID,
+	}
+
+	builderRef, err := builder.AddSnapshot(&snapshot1)
+	require.NoError(t, err)
+
+	builderRef, err = builderRef.SetSnapshotRef(MainBranch, 1, BranchRef, WithMinSnapshotsToKeep(10))
+	require.NoError(t, err)
+
+	parentSnapshotID := int64(1)
+	snapshot2 := Snapshot{
+		SnapshotID:       2,
+		ParentSnapshotID: &parentSnapshotID,
+		SequenceNumber:   0, // Lower sequence number than previous
+		TimestampMs:      builderRef.lastUpdatedMS + 1,
+		ManifestList:     "/snap-0.avro",
+		Summary: &Summary{
+			Operation:  OpAppend,
+			Properties: map[string]string{},
+		},
+		SchemaID: &schemaID,
+	}
+	_, err = builderRef.AddSnapshot(&snapshot2)
+	require.ErrorContains(t, err, "cannot add snapshot with sequence number 0, previous snapshot has sequence number 1")
+}
+
+func TestDefaultSpecCannotBeRemoved(t *testing.T) {
+	builder := builderWithoutChanges(2)
+
+	err := builder.RemovePartitionSpecs([]int{0})
+	require.Error(t, err)
 }
