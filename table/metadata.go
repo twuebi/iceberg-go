@@ -1329,7 +1329,7 @@ func (c *commonMetadata) checkSortOrders() error {
 	for _, o := range c.SortOrderList {
 		if o.OrderID == c.DefaultSortOrderID {
 			if err := o.CheckCompatibility(c.CurrentSchema()); err != nil {
-				return fmt.Errorf("default sort order %d is not compatible with current schema: %w", o.OrderID, err)
+				return fmt.Errorf("default sort order %d is not compatible with current schema: %w", o.OrderID err)
 			}
 			return nil
 		}
@@ -1366,6 +1366,15 @@ func (c *commonMetadata) validate() error {
 
 	c.constructRefs()
 
+	if err := c.checkMainRefMatchesCurrentSnapshot(); err != nil {
+		return err
+	}
+
+	if err := c.checkRefsExist(); err != nil {
+		return err
+	}
+
+
 	switch {
 	case c.LastUpdatedMS == 0:
 		// last-updated-ms is required
@@ -1390,6 +1399,35 @@ func (c *commonMetadata) NameMapping() iceberg.NameMapping {
 }
 
 func (c *commonMetadata) Version() int { return c.FormatVersion }
+
+func (c *commonMetadata) checkMainRefMatchesCurrentSnapshot() error {
+	if c.CurrentSnapshotID != nil {
+		if ref, ok := c.SnapshotRefs[MainBranch]; ok {
+			if ref.SnapshotID != *c.CurrentSnapshotID {
+				return fmt.Errorf("%w: main branch snapshot ID %d does not match current snapshot ID %d",
+					ErrInvalidMetadata, ref.SnapshotID, *c.CurrentSnapshotID)
+			}
+		}
+	} else {
+		if _, ok := c.SnapshotRefs[MainBranch]; ok {
+			return fmt.Errorf("%w: main branch snapshot exists, but current snapshot ID is nil",
+				ErrInvalidMetadata)
+		}
+	}
+	return nil
+}
+
+func (c *commonMetadata) checkRefsExist() error {
+	for name, ref := range c.SnapshotRefs {
+		snap := c.SnapshotByID(ref.SnapshotID)
+		if snap == nil {
+			return fmt.Errorf("%w: snapshot ref %s with ID %d does not exist in snapshot list",
+				ErrInvalidMetadata, name, ref.SnapshotID)
+		}
+	}
+	return nil
+}
+
 
 type metadataV1 struct {
 	Schema    *iceberg.Schema          `json:"schema,omitempty"`
@@ -1512,8 +1550,20 @@ func (m *metadataV2) UnmarshalJSON(b []byte) error {
 	}
 
 	m.preValidate()
-
+	if err := m.checkLastSequenceNumber(); err != nil {
+		return err
+	}
 	return m.validate()
+}
+
+func (m *metadataV2) checkLastSequenceNumber() error {
+	for _, snap := range m.SnapshotList {
+		if snap.SequenceNumber > m.LastSequenceNumber() {
+			return fmt.Errorf("%w: snapshot %d has sequence number %d which is greater than last-sequence-number %d",
+				ErrInvalidMetadata, snap.SnapshotID, snap.SequenceNumber, m.LastSequenceNumber())
+		}
+	}
+	return nil
 }
 
 const DefaultFormatVersion = 2

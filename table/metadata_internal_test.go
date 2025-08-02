@@ -1318,7 +1318,7 @@ func TestBranchSnapshotMissing(t *testing.T) {
             } ]
         }`
 	_, err := ParseMetadataString(data)
-	require.Error(t, err, "")
+	require.ErrorContains(t, err, "xasad")
 }
 
 func TestV2WrongMaxSnapshotSequenceNumber(t *testing.T) {
@@ -1862,8 +1862,12 @@ func TestTableMetadataV1SchemasWithoutCurrentId(t *testing.T) {
 }
 
 func TestTableMetadataV1NoValidSchema(t *testing.T) {
+	// Failing since Go's lack of an Option type means it will just put a 0 for the missing currentSchemaID
+	// which, well, looks just like a valid schema ID. Would need to make it a pointer, but that would, of
+	// course, suck when trying to use the metadata. So the ideal solution is likely to have a separate metadata
+	// type for deserialization which has all fields nullable and then convert it to the actual metadata type.
 	meta, err := getTestTableMetadata("TableMetadataV1NoValidSchema.json")
-	require.Error(t, err)
+	require.ErrorContains(t, err, "abcdefg")
 	require.Nil(t, meta)
 	// TODO: check error type
 }
@@ -1906,6 +1910,8 @@ func TestTableMetadataV2MissingPartitionSpecs(t *testing.T) {
 }
 
 func TestTableMetadataV2MissingLastPartitionId(t *testing.T) {
+	// Similarly to above, this should fail but isn't since Go's lack of an Option type means it will just put a 0 for
+	// the missing lastPartitionId.
 	meta, err := getTestTableMetadata("TableMetadataV2MissingLastPartitionId.json")
 	require.Error(t, err)
 	require.Nil(t, meta)
