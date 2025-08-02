@@ -300,9 +300,9 @@ func TestAddRemovePartitionSpec(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, newBuild)
 	require.Len(t, newBuilder.updates, 1)
-	require.Len(t, newBuild.PartitionSpecs(), 1, "%d %d", newBuild.PartitionSpecs()[0].ID(), newBuild.PartitionSpecs()[1].ID())
+	require.Len(t, newBuild.PartitionSpecs(), 1)
 	_, err = newBuilder.GetSpecByID(1)
-	require.ErrorIs(t, fmt.Errorf("partition spec with id %d not found", 1), err)
+	require.ErrorContains(t, err, "partition spec with id 1 not found")
 
 }
 
@@ -683,7 +683,9 @@ func TestAddIncompatibleCurrentSchemaFails(t *testing.T) {
 	_, err := builder.AddSchema(addedSchema)
 	require.NoError(t, err)
 	_, err = builder.SetCurrentSchemaID(1)
-	require.ErrorContains(t, err, "Cannot find partition source field")
+	require.NoError(t, err)
+	_, err = builder.Build()
+	require.ErrorContains(t, err, "with source id 3 not found in schema")
 }
 
 func TestAddPartitionSpecForV1RequiresSequentialIDs(t *testing.T) {

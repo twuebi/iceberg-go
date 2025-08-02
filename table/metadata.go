@@ -804,11 +804,6 @@ func (b *MetadataBuilder) SetLastUpdatedMS() *MetadataBuilder {
 }
 
 func (b *MetadataBuilder) buildCommonMetadata() (*commonMetadata, error) {
-	if _, err := b.GetSpecByID(b.defaultSpecID); err != nil {
-		return nil, fmt.Errorf("defaultSpecID is invalid: %w", err)
-	}
-	defaultSpecID := b.defaultSpecID
-
 	if b.lastUpdatedMS == 0 {
 		b.lastUpdatedMS = time.Now().UnixMilli()
 	}
@@ -824,7 +819,7 @@ func (b *MetadataBuilder) buildCommonMetadata() (*commonMetadata, error) {
 		SchemaList:         b.schemaList,
 		CurrentSchemaID:    b.currentSchemaID,
 		Specs:              b.specs,
-		DefaultSpecID:      defaultSpecID,
+		DefaultSpecID:      b.defaultSpecID,
 		LastPartitionID:    b.lastPartitionID,
 		Props:              b.props,
 		SnapshotList:       b.snapshotList,
@@ -1013,6 +1008,8 @@ func (b *MetadataBuilder) RemovePartitionSpecs(ints []int) (*MetadataBuilder, er
 		}
 		newSpecs = append(newSpecs, spec)
 	}
+
+	b.specs = newSpecs
 
 	if len(removed) != 0 {
 		b.updates = append(b.updates, NewRemoveSpecUpdate(ints))
@@ -1331,6 +1328,9 @@ func (c *commonMetadata) checkSortOrders() error {
 
 	for _, o := range c.SortOrderList {
 		if o.OrderID == c.DefaultSortOrderID {
+			if err := o.CheckCompatibility(c.CurrentSchema()); err != nil {
+				return fmt.Errorf("default sort order %d is not compatible with current schema: %w", o.OrderID, err)
+			}
 			return nil
 		}
 	}

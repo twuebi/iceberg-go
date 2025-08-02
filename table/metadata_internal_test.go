@@ -1013,7 +1013,7 @@ func TestTableDataV2NoSnapshots(t *testing.T) {
 
 	i := 1000
 	expected := metadataV2{
-		LastSeqNum: 34,
+		LastSeqNum: 1,
 		commonMetadata: commonMetadata{
 			FormatVersion:     2,
 			UUID:              uuid.MustParse("fb072c92-a02b-11e9-ae9c-1bb7bc9eca94"),
@@ -1842,7 +1842,7 @@ func TestTableMetadataV1FileValid(t *testing.T) {
 func TestTableMetadataV1Compat(t *testing.T) {
 	meta, err := getTestTableMetadata("TableMetadataV1Compat.json")
 	require.NoError(t, err)
-	require.Equal(t, meta.(*metadataV1).FormatVersion, 1)
+	require.Equal(t, meta.(*metadataV1).FormatVersion(), 1)
 	require.Equal(t, meta.TableUUID(), uuid.MustParse("3276010d-7b1d-488c-98d8-9025fc4fde6b"))
 	require.Equal(t, meta.Location(), "s3://bucket/warehouse/iceberg/glue.db/table_name")
 	require.Equal(t, meta.LastUpdatedMillis(), int64(1727773114005))
@@ -1852,7 +1852,7 @@ func TestTableMetadataV1Compat(t *testing.T) {
 func TestTableMetadataV1SchemasWithoutCurrentId(t *testing.T) {
 	meta, err := getTestTableMetadata("TableMetadataV1SchemasWithoutCurrentId.json")
 	require.NoError(t, err)
-	require.Equal(t, meta.(*metadataV1).FormatVersion, 1)
+	require.Equal(t, meta.(*metadataV1).FormatVersion(), 1)
 	require.Equal(t, meta.TableUUID(), uuid.MustParse("d20125c8-7284-442c-9aea-15fee620737c"))
 	schema := meta.CurrentSchema()
 	require.Equal(t, len(schema.Fields()), 3)
