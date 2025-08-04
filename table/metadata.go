@@ -189,16 +189,36 @@ func NewMetadataBuilderFromPieces(schema *iceberg.Schema, spec iceberg.Partition
 		return nil, err
 	}
 	var builder MetadataBuilder
+	var metadata Metadata
 	if formatVersion == 1 {
-		// TODO: impl formatVersion1
-		// 		 ...
+		metadata = &metadataV1{
+			commonMetadata: commonMetadata{
+				FormatVersion:      1,
+				UUID:               tableID,
+				Loc:                "",
+				LastUpdatedMS:      0,
+				LastColumnId:       -1,
+				SchemaList:         nil,
+				CurrentSchemaID:    -1,
+				Specs:              nil,
+				DefaultSpecID:      -1,
+				LastPartitionID:    nil,
+				Props:              nil,
+				SnapshotList:       nil,
+				CurrentSnapshotID:  nil,
+				SnapshotLog:        nil,
+				MetadataLog:        nil,
+				SortOrderList:      nil,
+				DefaultSortOrderID: 0,
+				SnapshotRefs:       nil,
+			},
+		}
 	} else if formatVersion == 2 {
-		var metadata Metadata
 		metadata = &metadataV2{
 			LastSeqNum: 0,
 			commonMetadata: commonMetadata{
 				FormatVersion:      2,
-				UUID:               uuid.New(),
+				UUID:               tableID,
 				Loc:                "",
 				LastUpdatedMS:      0,
 				LastColumnId:       -1,
@@ -1091,9 +1111,9 @@ func ParseMetadataBytes(b []byte) (Metadata, error) {
 	var ret Metadata
 	switch ver.FormatVersion {
 	case 1:
-		ret = &metadataV1{}
+		ret = initMetadataV1Deser()
 	case 2:
-		ret = &metadataV2{}
+		ret = initMetadataV2Deser()
 	default:
 		return nil, ErrInvalidMetadataFormatVersion
 	}
@@ -1127,6 +1147,29 @@ type commonMetadata struct {
 	SortOrderList      []SortOrder             `json:"sort-orders"`
 	DefaultSortOrderID int                     `json:"default-sort-order-id"`
 	SnapshotRefs       map[string]SnapshotRef  `json:"refs,omitempty"`
+}
+
+func initCommonMetadataForDeserialization() commonMetadata {
+	return commonMetadata{
+		FormatVersion:      0,
+		UUID:               uuid.UUID{},
+		Loc:                "",
+		LastUpdatedMS:      -1,
+		LastColumnId:       -1,
+		SchemaList:         nil,
+		CurrentSchemaID:    -1,
+		Specs:              nil,
+		DefaultSpecID:      -1,
+		LastPartitionID:    nil,
+		Props:              nil,
+		SnapshotList:       nil,
+		CurrentSnapshotID:  nil,
+		SnapshotLog:        nil,
+		MetadataLog:        nil,
+		SortOrderList:      nil,
+		DefaultSortOrderID: 0,
+		SnapshotRefs:       nil,
+	}
 }
 
 func (c *commonMetadata) Ref() SnapshotRef                     { return c.SnapshotRefs[MainBranch] }
@@ -1329,7 +1372,7 @@ func (c *commonMetadata) checkSortOrders() error {
 	for _, o := range c.SortOrderList {
 		if o.OrderID == c.DefaultSortOrderID {
 			if err := o.CheckCompatibility(c.CurrentSchema()); err != nil {
-				return fmt.Errorf("default sort order %d is not compatible with current schema: %w", o.OrderID err)
+				return fmt.Errorf("default sort order %d is not compatible with current schema: %w", o.OrderID, err)
 			}
 			return nil
 		}
@@ -1352,6 +1395,21 @@ func (c *commonMetadata) constructRefs() {
 }
 
 func (c *commonMetadata) validate() error {
+	switch {
+	case c.LastUpdatedMS == 0:
+		// last-updated-ms is required
+		return fmt.Errorf("%w: missing last-updated-ms", ErrInvalidMetadata)
+	case c.LastColumnId < 0:
+		// last-column-id is required
+		return fmt.Errorf("%w: missing last-column-id", ErrInvalidMetadata)
+	case c.CurrentSchemaID < 0:
+		return fmt.Errorf("%w: no valid schema configuration found in table metadata", ErrInvalidMetadata)
+	case c.LastPartitionID == nil:
+		if c.FormatVersion > 1 {
+			return fmt.Errorf("%w: last-partition-id must be set for FormatVersion > 1.ß", ErrInvalidMetadata)
+		}
+	}
+
 	if err := c.checkSchemas(); err != nil {
 		return err
 	}
@@ -1372,16 +1430,6 @@ func (c *commonMetadata) validate() error {
 
 	if err := c.checkRefsExist(); err != nil {
 		return err
-	}
-
-
-	switch {
-	case c.LastUpdatedMS == 0:
-		// last-updated-ms is required
-		return fmt.Errorf("%w: missing last-updated-ms", ErrInvalidMetadata)
-	case c.LastColumnId < 0:
-		// last-column-id is required
-		return fmt.Errorf("%w: missing last-column-id", ErrInvalidMetadata)
 	}
 
 	return nil
@@ -1428,12 +1476,19 @@ func (c *commonMetadata) checkRefsExist() error {
 	return nil
 }
 
-
 type metadataV1 struct {
 	Schema    *iceberg.Schema          `json:"schema,omitempty"`
 	Partition []iceberg.PartitionField `json:"partition-spec,omitempty"`
 
 	commonMetadata
+}
+
+func initMetadataV1Deser() *metadataV1 {
+	return &metadataV1{
+		Schema:         nil,
+		Partition:      nil,
+		commonMetadata: initCommonMetadataForDeserialization(),
+	}
 }
 
 func (m *metadataV1) FormatVersion() int {
@@ -1468,6 +1523,10 @@ func (m *metadataV1) preValidate() {
 		m.DefaultSpecID = m.Specs[0].ID()
 	}
 
+	if m.DefaultSpecID == -1 && len(m.Specs) > 0 {
+		m.DefaultSpecID = maxBy(m.Specs, func(s iceberg.PartitionSpec) int { return s.ID() })
+	}
+
 	if m.LastPartitionID == nil {
 		id := m.Specs[0].LastAssignedFieldID()
 		for _, spec := range m.Specs[1:] {
@@ -1497,6 +1556,16 @@ func (m *metadataV1) UnmarshalJSON(b []byte) error {
 		return err
 	}
 
+	// CurrentSchemaID was optional in v1, it can also be expressed via Schema. ß
+	if aux.CurrentSchemaID == -1 && aux.Schema != nil {
+		aux.CurrentSchemaID = aux.Schema.ID
+		if !slices.ContainsFunc(aux.SchemaList, func(s *iceberg.Schema) bool {
+			return s.Equals(aux.Schema) && s.ID == aux.CurrentSchemaID
+		}) {
+			aux.SchemaList = append(aux.SchemaList, aux.Schema)
+		}
+	}
+
 	m.preValidate()
 
 	return m.validate()
@@ -1516,6 +1585,13 @@ type metadataV2 struct {
 	LastSeqNum int64 `json:"last-sequence-number"`
 
 	commonMetadata
+}
+
+func initMetadataV2Deser() *metadataV2 {
+	return &metadataV2{
+		LastSeqNum:     -1,
+		commonMetadata: initCommonMetadataForDeserialization(),
+	}
 }
 
 func (m *metadataV2) FormatVersion() int {

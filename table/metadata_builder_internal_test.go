@@ -19,12 +19,13 @@ package table
 
 import (
 	"fmt"
+	"testing"
+	"time"
+
 	"github.com/apache/iceberg-go"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/google/go-cmp/cmp"
 	"github.com/stretchr/testify/require"
-	"testing"
-	"time"
 )
 
 func schema() iceberg.Schema {
@@ -60,8 +61,10 @@ func partitionSpec() iceberg.PartitionSpec {
 	)
 }
 
-const TestLocation = "s3://bucket/test/location"
-const LastAssignedColumnID = 3
+const (
+	TestLocation         = "s3://bucket/test/location"
+	LastAssignedColumnID = 3
+)
 
 func builderWithoutChanges(formatVersion int) MetadataBuilder {
 	tableSchema := schema()
@@ -303,7 +306,6 @@ func TestAddRemovePartitionSpec(t *testing.T) {
 	require.Len(t, newBuild.PartitionSpecs(), 1)
 	_, err = newBuilder.GetSpecByID(1)
 	require.ErrorContains(t, err, "partition spec with id 1 not found")
-
 }
 
 func TestSetDefaultPartitionSpec(t *testing.T) {
@@ -531,7 +533,8 @@ func TestSetRef(t *testing.T) {
 				"spark.app.id":     "local-1662532784305",
 				"added-data-files": "4",
 				"added-records":    "4",
-				"added-files-size": "6001"},
+				"added-files-size": "6001",
+			},
 		},
 		SchemaID: &schemaID,
 	}
@@ -565,7 +568,8 @@ func TestSnapshotLogSkipsIntermediate(t *testing.T) {
 				"spark.app.id":     "local-1662532784305",
 				"added-data-files": "4",
 				"added-records":    "4",
-				"added-files-size": "6001"},
+				"added-files-size": "6001",
+			},
 		},
 		SchemaID: &schemaID,
 	}
@@ -582,7 +586,8 @@ func TestSnapshotLogSkipsIntermediate(t *testing.T) {
 				"spark.app.id":     "local-1662532784305",
 				"added-data-files": "4",
 				"added-records":    "4",
-				"added-files-size": "6001"},
+				"added-files-size": "6001",
+			},
 		},
 		SchemaID: &schemaID,
 	}
@@ -628,7 +633,8 @@ func TestSetBranchSnapshotCreatesBranchIfNotExists(t *testing.T) {
 				"spark.app.id":     "local-1662532784305",
 				"added-data-files": "4",
 				"added-records":    "4",
-				"added-files-size": "6001"},
+				"added-files-size": "6001",
+			},
 		},
 		SchemaID: &schemaID,
 	}
@@ -667,7 +673,8 @@ func TestCannotAddDuplicateSnapshotID(t *testing.T) {
 				"spark.app.id":     "local-1662532784305",
 				"added-data-files": "4",
 				"added-records":    "4",
-				"added-files-size": "6001"},
+				"added-files-size": "6001",
+			},
 		},
 		SchemaID: &schemaID,
 	}

@@ -20,13 +20,14 @@ package table
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/davecgh/go-spew/spew"
-	"github.com/google/go-cmp/cmp"
 	"os"
 	"path"
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/davecgh/go-spew/spew"
+	"github.com/google/go-cmp/cmp"
 
 	"github.com/apache/iceberg-go"
 	"github.com/google/uuid"
@@ -906,6 +907,7 @@ func TestMetadataV2Validation(t *testing.T) {
 		"last-sequence-number": 34,
 		"current-schema-id": 0,
 		"last-updated-ms": 1602638573590,
+		"last-partition-id": 1000,
 		"schemas": [{"type":"struct","schema-id":0,"fields":[]}],
 		"default-spec-id": 0,
 		"partition-specs": [{"spec-id": 0, "fields": []}],
@@ -921,6 +923,7 @@ func TestMetadataV2Validation(t *testing.T) {
 		"last-updated-ms": 1602638573874,
 		"last-column-id": 5,
 		"current-schema-id": 0,
+		"last-partition-id": 1000,
 		"schemas": [{"type":"struct","schema-id":0,"fields":[]}],
 		"partition-specs": [{"spec-id": 0, "fields": []}],
 		"properties": {},
@@ -937,6 +940,7 @@ func TestMetadataV2Validation(t *testing.T) {
 		"current-schema-id": 0,
 		"last-updated-ms": 1602638573590,
 		"last-column-id": 0,
+		"last-partition-id": 1000,
 		"schemas": [{"type":"struct","schema-id":0,"fields":[]}],
 		"partition-specs": [{"spec-id": 0, "fields": []}],
 		"sort-orders": [],
@@ -1302,6 +1306,7 @@ func TestBranchSnapshotMissing(t *testing.T) {
                 "type" : "branch"
               }
             },
+			"current-snapshot-id" : 1,
             "snapshots" : [ {
               "snapshot-id" : 1,
               "timestamp-ms" : 1662532818843,
@@ -1315,15 +1320,14 @@ func TestBranchSnapshotMissing(t *testing.T) {
               },
               "manifest-list" : "/home/iceberg/warehouse/nyc/taxis/metadata/snap-638933773299822130-1-7e6760f0-4f6c-4b23-b907-0a5a174e3863.avro",
               "schema-id" : 0
-            } ]
+            }]
         }`
 	_, err := ParseMetadataString(data)
-	require.ErrorContains(t, err, "xasad")
+	require.ErrorContains(t, err, "invalid metadata: snapshot ref foo with ID 2 does not exist in snapshot list")
 }
 
 func TestV2WrongMaxSnapshotSequenceNumber(t *testing.T) {
-	data := `{
-            "format-version": 2,
+	data := `{"format-version": 2,
             "table-uuid": "9c12d441-03fe-4693-9a96-a0705ddf69c1",
             "location": "s3://bucket/test/location",
             "last-sequence-number": 1,
@@ -1366,25 +1370,23 @@ func TestV2WrongMaxSnapshotSequenceNumber(t *testing.T) {
                     "snapshot-id": 3055729675574597004,
                     "timestamp-ms": 1555100955770,
                     "sequence-number": 4,
-                    "summary": {
-                        "operation": "append"
-                    },
+                    "summary": { "operation": "append" },
                     "manifest-list": "s3://a/b/2.avro",
                     "schema-id": 0
                 }
             ],
             "statistics": [],
             "snapshot-log": [],
-            "metadata-log": []
-        }`
+            "metadata-log": []}`
 	_, err := ParseMetadataString(data)
 	require.Error(t, err, "")
-	s := strings.ReplaceAll(data, `"last-sequence-number": 1,`, `"last-sequence-number": 4,"`)
+	s := strings.ReplaceAll(data, `"last-sequence-number": 1,`, `"last-sequence-number": 4,`)
+
 	meta, err := ParseMetadataString(s)
 	require.NoError(t, err)
 	require.Equal(t, meta.LastSequenceNumber(), int64(4))
 
-	s = strings.ReplaceAll(data, `"last-sequence-number": 1,`, `"last-sequence-number": 5,"`)
+	s = strings.ReplaceAll(data, `"last-sequence-number": 1,`, `"last-sequence-number": 5,`)
 	meta, err = ParseMetadataString(s)
 	require.NoError(t, err)
 	require.Equal(t, meta.LastSequenceNumber(), int64(5))
@@ -1867,7 +1869,7 @@ func TestTableMetadataV1NoValidSchema(t *testing.T) {
 	// course, suck when trying to use the metadata. So the ideal solution is likely to have a separate metadata
 	// type for deserialization which has all fields nullable and then convert it to the actual metadata type.
 	meta, err := getTestTableMetadata("TableMetadataV1NoValidSchema.json")
-	require.ErrorContains(t, err, "abcdefg")
+	require.ErrorContains(t, err, "invalid metadata: no valid schema configuration found in table metadata")
 	require.Nil(t, meta)
 	// TODO: check error type
 }
@@ -1876,7 +1878,7 @@ func TestTableMetadataV1PartitionSpecsWithoutDefaultId(t *testing.T) {
 	// Deserialize the JSON - this should succeed by inferring default_spec_id as the max spec ID
 	meta, err := getTestTableMetadata("TableMetadataV1PartitionSpecsWithoutDefaultId.json")
 	require.NoError(t, err)
-	require.Equal(t, meta.(*metadataV1).FormatVersion, 1)
+	require.Equal(t, meta.(*metadataV1).FormatVersion(), 1)
 	require.Equal(t, meta.TableUUID(), uuid.MustParse("d20125c8-7284-442c-9aea-15fee620737c"))
 	require.Equal(t, meta.DefaultPartitionSpec(), 2)
 	require.Equal(t, len(meta.PartitionSpecs()), 2)
@@ -1959,7 +1961,6 @@ func TestDefaultSortOrder(t *testing.T) {
 }
 
 func getTestTableMetadata(fileName string) (Metadata, error) {
-
 	fCont, err := os.ReadFile(path.Join("../test_table_metadata", fileName))
 	if err != nil {
 		return nil, err
