@@ -1870,7 +1870,6 @@ func TestTableMetadataV1NoValidSchema(t *testing.T) {
 	meta, err := getTestTableMetadata("TableMetadataV1NoValidSchema.json")
 	require.ErrorContains(t, err, "invalid metadata: no valid schema configuration found in table metadata")
 	require.Nil(t, meta)
-	// TODO: check error type
 }
 
 func TestTableMetadataV1PartitionSpecsWithoutDefaultId(t *testing.T) {
@@ -1934,7 +1933,6 @@ func TestTableMetadataV2UnsupportedVersion(t *testing.T) {
 }
 
 func TestDefaultPartitionSpec(t *testing.T) {
-	// TODO: what is the purpose here? spec/table_metadata.rs:2936
 	defaultSpecID := 1234
 	meta, err := getTestTableMetadata("TableMetadataV2Valid.json")
 	require.NoError(t, err)
@@ -1947,7 +1945,6 @@ func TestDefaultPartitionSpec(t *testing.T) {
 }
 
 func TestDefaultSortOrder(t *testing.T) {
-	// TODO: what is the purpose here? spec/table_metadata.rs:2955
 	orderID := 1234
 	meta, err := getTestTableMetadata("TableMetadataV2Valid.json")
 	require.NoError(t, err)

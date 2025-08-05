@@ -359,7 +359,6 @@ func MetadataBuilderFromBase(metadata Metadata, currentFileLocation *string) (*M
 func (b *MetadataBuilder) HasChanges() bool { return len(b.updates) > 0 }
 
 func (b *MetadataBuilder) CurrentSpec() iceberg.PartitionSpec {
-	// FIXME: this should return a pointer which can be nil to avoid out of bounds indexing / np derefs
 	return b.specs[b.defaultSpecID]
 }
 
