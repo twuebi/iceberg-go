@@ -284,6 +284,7 @@ func TestAddRemovePartitionSpec(t *testing.T) {
 
 	i2 := 1001
 	expectedSpec, err := iceberg.NewPartitionSpecOpts(iceberg.WithSpecID(1), iceberg.AddPartitionFieldBySourceID(2, "y", iceberg.IdentityTransform{}, builder.schemaList[0], &i), iceberg.AddPartitionFieldBySourceID(3, "z", iceberg.IdentityTransform{}, builder.schemaList[0], &i2))
+	require.NoError(t, err)
 	require.Equal(t, metadata.DefaultPartitionSpec(), 0)
 	require.Equal(t, *metadata.LastPartitionSpecID(), i2)
 	found := false
@@ -324,6 +325,7 @@ func TestSetDefaultPartitionSpec(t *testing.T) {
 
 	id := 1001
 	expectedSpec, err := iceberg.NewPartitionSpecOpts(iceberg.WithSpecID(1), iceberg.AddPartitionFieldBySourceID(1, "y_bucket[2]", iceberg.BucketTransform{NumBuckets: 2}, curSchema, &id))
+	require.NoError(t, err)
 	require.True(t, builderRef.HasChanges())
 	require.Equal(t, len(builderRef.updates), 2)
 	require.True(t, builderRef.updates[0].(*addPartitionSpecUpdate).Spec.Equals(addedSpec))
@@ -719,6 +721,7 @@ func TestExpireMetadataLog(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, builder.metadataLog, 1)
 	meta, err := builder.Build()
+	require.NoError(t, err)
 	require.Len(t, meta.(*metadataV2).MetadataLog, 1)
 
 	location := "p"

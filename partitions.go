@@ -100,7 +100,7 @@ func AddPartitionFieldBySourceID(sourceID int, targetName string, transform Tran
 	return func(p *PartitionSpec) error {
 		field, ok := schema.FindFieldByID(sourceID)
 		if !ok {
-			return errors.New(fmt.Sprintf("Cannot find source column with id: %d in schema", sourceID))
+			return fmt.Errorf("cannot find source column with id: %d in schema", sourceID)
 		}
 		err := addSpecFieldInternal(p, targetName, field, transform, fieldID)
 		if err != nil {
@@ -116,7 +116,7 @@ func AddPartitionFieldByName(sourceName string, targetName string, transform Tra
 		field, ok := schema.FindFieldByName(sourceName)
 
 		if !ok {
-			return errors.New(fmt.Sprintf("Cannot find source column with name: %s in schema", sourceName))
+			return fmt.Errorf("cannot find source column with name: %s in schema", sourceName)
 		}
 		err := addSpecFieldInternal(p, targetName, field, transform, fieldID)
 		if err != nil {

@@ -1654,8 +1654,7 @@ func TestTableMetadataV2FileValid(t *testing.T) {
 	}
 	i := 1000
 	curSnap := int64(3055729675574597004)
-	var expected Metadata
-	expected = &metadataV2{
+	expected := &metadataV2{
 		LastSeqNum: 34,
 		commonMetadata: commonMetadata{
 			FormatVersion:   DefaultFormatVersion,
