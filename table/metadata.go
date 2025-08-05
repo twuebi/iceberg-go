@@ -237,61 +237,59 @@ func NewMetadataBuilderFromPieces(schema *iceberg.Schema, spec iceberg.Partition
 				SnapshotRefs:       nil,
 			},
 		}
-
-		lastPartitionID := 999
-		builder = MetadataBuilder{
-			base:               metadata,
-			updates:            nil,
-			formatVersion:      2,
-			uuid:               tableID,
-			loc:                location,
-			lastUpdatedMS:      0,
-			lastColumnId:       0,
-			schemaList:         []*iceberg.Schema{},
-			currentSchemaID:    -1,
-			specs:              []iceberg.PartitionSpec{},
-			defaultSpecID:      -1,
-			lastPartitionID:    &lastPartitionID,
-			props:              properties,
-			snapshotList:       []Snapshot{},
-			currentSnapshotID:  nil,
-			snapshotLog:        []SnapshotLogEntry{},
-			metadataLog:        []MetadataLogEntry{},
-			sortOrderList:      []SortOrder{},
-			defaultSortOrderID: -1,
-			refs:               make(map[string]SnapshotRef),
-			lastSequenceNumber: nil,
-			lastAddedSchemaID:  nil,
-		}
-		builderRef, err := builder.AddSchema(freshSchema)
-		if err != nil {
-			return nil, err
-		}
-		_, err = builderRef.SetCurrentSchemaID(-1)
-		if err != nil {
-			return nil, err
-		}
-		_, err = builderRef.AddPartitionSpec(&freshSpec, true)
-		if err != nil {
-			return nil, err
-		}
-		_, err = builderRef.SetDefaultSpecID(-1)
-		if err != nil {
-			return nil, err
-		}
-		_, err = builderRef.AddSortOrder(&freshOrder, true)
-		if err != nil {
-			return nil, err
-		}
-		_, err = builderRef.SetDefaultSortOrderID(-1)
-		if err != nil {
-			return nil, err
-		}
-		builderRef.updates = make([]Update, 0)
 	} else {
 		return nil, fmt.Errorf("unknown format version %d", formatVersion)
 	}
-
+	lastPartitionID := 999
+	builder = MetadataBuilder{
+		base:               metadata,
+		updates:            nil,
+		formatVersion:      2,
+		uuid:               tableID,
+		loc:                location,
+		lastUpdatedMS:      0,
+		lastColumnId:       0,
+		schemaList:         []*iceberg.Schema{},
+		currentSchemaID:    -1,
+		specs:              []iceberg.PartitionSpec{},
+		defaultSpecID:      -1,
+		lastPartitionID:    &lastPartitionID,
+		props:              properties,
+		snapshotList:       []Snapshot{},
+		currentSnapshotID:  nil,
+		snapshotLog:        []SnapshotLogEntry{},
+		metadataLog:        []MetadataLogEntry{},
+		sortOrderList:      []SortOrder{},
+		defaultSortOrderID: -1,
+		refs:               make(map[string]SnapshotRef),
+		lastSequenceNumber: nil,
+		lastAddedSchemaID:  nil,
+	}
+	_, err = builder.AddSchema(freshSchema)
+	if err != nil {
+		return nil, err
+	}
+	_, err = builder.SetCurrentSchemaID(-1)
+	if err != nil {
+		return nil, err
+	}
+	_, err = builder.AddPartitionSpec(&freshSpec, true)
+	if err != nil {
+		return nil, err
+	}
+	_, err = builder.SetDefaultSpecID(-1)
+	if err != nil {
+		return nil, err
+	}
+	_, err = builder.AddSortOrder(&freshOrder, true)
+	if err != nil {
+		return nil, err
+	}
+	_, err = builder.SetDefaultSortOrderID(-1)
+	if err != nil {
+		return nil, err
+	}
+	builder.updates = make([]Update, 0)
 	return &builder, nil
 }
 
@@ -927,6 +925,7 @@ func (b *MetadataBuilder) Build() (Metadata, error) {
 	if err != nil {
 		return nil, err
 	}
+	common.preValidate()
 	if err := common.validate(); err != nil {
 		return nil, err
 	}

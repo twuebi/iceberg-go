@@ -791,7 +791,7 @@ func TestDefaultSpecCannotBeRemoved(t *testing.T) {
 	builder := builderWithoutChanges(2)
 
 	_, err := builder.RemovePartitionSpecs([]int{0})
-	require.ErrorContains(t, err, "Cannot remove default partition spec with ID 0")
+	require.ErrorContains(t, err, "can't remove default partition spec with id 0")
 }
 
 func TestStatistics(t *testing.T) {
@@ -807,10 +807,11 @@ func TestLastUpdateIncreasedForPropertyOnlyUpdate(t *testing.T) {
 	meta, err := builder.Build()
 	require.NoError(t, err)
 	lastUpdatedMS := builder.lastUpdatedMS
-	time.Sleep(2 * time.Millisecond)
+	time.Sleep(5 * time.Millisecond)
 	// Set a property
 
 	location := "some-location"
+
 	newBuilder, err := MetadataBuilderFromBase(meta, &location)
 	require.NoError(t, err)
 
@@ -828,8 +829,14 @@ func TestLastUpdateIncreasedForPropertyOnlyUpdate(t *testing.T) {
 
 func TestConstructDefaultMainBranch(t *testing.T) {
 	// TODO: Not sure what this test is supposed to do Rust: `test_construct_default_main_branch`
-	builder := builderWithoutChanges(2)
-	meta, err := builder.Build()
+	meta, err := getTestTableMetadata("TableMetadataV2Valid.json")
+	require.NoError(t, err)
+	require.NotNil(t, meta)
+
+	builder, err := MetadataBuilderFromBase(meta, nil)
+	require.NoError(t, err)
+
+	meta, err = builder.Build()
 	require.NoError(t, err)
 	require.NotNil(t, meta)
 
@@ -841,7 +848,7 @@ func TestActiveSchemaCannotBeRemoved(t *testing.T) {
 
 	// Try to remove the current schema
 	_, err := builder.RemoveSchemas([]int{0})
-	require.ErrorContains(t, err, "Cannot remove active schema with ID 0")
+	require.ErrorContains(t, err, "can't remove current schema with id 0")
 }
 
 func TestRemoveSchemas(t *testing.T) {
