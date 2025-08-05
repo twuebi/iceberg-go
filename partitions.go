@@ -91,6 +91,7 @@ type PartitionOption func(*PartitionSpec) error
 func WithSpecID(id int) PartitionOption {
 	return func(p *PartitionSpec) error {
 		p.id = id
+
 		return nil
 	}
 }
@@ -105,6 +106,7 @@ func AddPartitionFieldBySourceID(sourceID int, targetName string, transform Tran
 		if err != nil {
 			return err
 		}
+
 		return nil
 	}
 }
@@ -120,17 +122,18 @@ func AddPartitionFieldByName(sourceName string, targetName string, transform Tra
 		if err != nil {
 			return err
 		}
+
 		return nil
 	}
 }
 
 func addSpecFieldInternal(p *PartitionSpec, targetName string, field NestedField, transform Transform, fieldID *int) error {
 	if targetName == "" {
-		return errors.New(fmt.Sprintf("Cannot use empty partition name"))
+		return errors.New("cannot use empty partition name")
 	}
 	for _, existingField := range p.fields {
 		if existingField.Name == targetName {
-			return errors.New(fmt.Sprintf("Duplicate partition name: %s", targetName))
+			return errors.New("duplicate partition name: " + targetName)
 		}
 	}
 	var fieldIDValue int
@@ -147,6 +150,7 @@ func addSpecFieldInternal(p *PartitionSpec, targetName string, field NestedField
 		Transform: transform,
 	}
 	p.fields = append(p.fields, unboundField)
+
 	return nil
 }
 
@@ -210,6 +214,7 @@ func (ps *PartitionSpec) AssignPartitionFieldIds(lastAssignedFieldIDPtr *int) er
 			lastAssignedFieldID = max(lastAssignedFieldID, ps.fields[i].FieldID)
 		}
 	}
+
 	return nil
 }
 

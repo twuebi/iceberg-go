@@ -567,6 +567,7 @@ func NewRemoveSpecUpdate(specIds []int) *removeSpecUpdate {
 
 func (u *removeSpecUpdate) Apply(builder *MetadataBuilder) error {
 	_, err := builder.RemovePartitionSpecs(u.SpecIds)
+
 	return err
 }
 
@@ -586,5 +587,6 @@ func NewRemoveSchemasUpdate(schemaIds []int) *removeSchemasUpdate {
 
 func (u *removeSchemasUpdate) Apply(builder *MetadataBuilder) error {
 	_, err := builder.RemoveSchemas(u.SchemaIDs)
+
 	return err
 }

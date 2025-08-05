@@ -76,6 +76,7 @@ func builderWithoutChanges(formatVersion int) MetadataBuilder {
 	if err != nil {
 		panic(err)
 	}
+
 	return *builder
 }
 

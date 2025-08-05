@@ -1969,5 +1969,6 @@ func getTestTableMetadata(fileName string) (Metadata, error) {
 	if err != nil {
 		return nil, err
 	}
+
 	return meta, nil
 }

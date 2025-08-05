@@ -291,6 +291,7 @@ func NewMetadataBuilderFromPieces(schema *iceberg.Schema, spec iceberg.Partition
 	} else {
 		return nil, fmt.Errorf("unknown format version %d", formatVersion)
 	}
+
 	return &builder, nil
 }
 
@@ -436,6 +437,7 @@ func (b *MetadataBuilder) AddPartitionSpec(spec *iceberg.PartitionSpec, initial 
 			b.updates = append(b.updates, NewAddPartitionSpecUpdate(spec, initial))
 			b.lastAddedPartitionID = &newSpecID
 		}
+
 		return b, nil
 	}
 	spec.SetID(newSpecID)
@@ -522,6 +524,7 @@ func (b *MetadataBuilder) AddSortOrder(sortOrder *SortOrder, initial bool) (*Met
 			sortOrder.OrderID = newOrderID
 			b.updates = append(b.updates, NewAddSortOrderUpdate(sortOrder, initial))
 		}
+
 		return b, nil
 	}
 	sortOrder.OrderID = newOrderID
@@ -830,6 +833,7 @@ func (b *MetadataBuilder) buildCommonMetadata() (*commonMetadata, error) {
 	if b.previousFileEntry != nil {
 		b.metadataLog = append(b.metadataLog, *b.previousFileEntry)
 	}
+
 	return &commonMetadata{
 		FormatVersion:      b.formatVersion,
 		UUID:               b.uuid,
@@ -1024,6 +1028,7 @@ func (b *MetadataBuilder) RemovePartitionSpecs(ints []int) (*MetadataBuilder, er
 	for _, spec := range b.specs {
 		if slices.Contains(ints, spec.ID()) {
 			removed = append(removed, spec.ID())
+
 			continue
 		}
 		newSpecs = append(newSpecs, spec)
@@ -1052,6 +1057,7 @@ func (b *MetadataBuilder) RemoveSchemas(ints []int) (*MetadataBuilder, error) {
 	for _, schema := range b.schemaList {
 		if slices.Contains(ints, schema.ID) {
 			removed = append(removed, schema.ID)
+
 			continue
 		}
 		newSchemas = append(newSchemas, schema)
@@ -1374,6 +1380,7 @@ func (c *commonMetadata) checkSortOrders() error {
 			if err := o.CheckCompatibility(c.CurrentSchema()); err != nil {
 				return fmt.Errorf("default sort order %d is not compatible with current schema: %w", o.OrderID, err)
 			}
+
 			return nil
 		}
 	}
@@ -1462,6 +1469,7 @@ func (c *commonMetadata) checkMainRefMatchesCurrentSnapshot() error {
 				ErrInvalidMetadata)
 		}
 	}
+
 	return nil
 }
 
@@ -1473,6 +1481,7 @@ func (c *commonMetadata) checkRefsExist() error {
 				ErrInvalidMetadata, name, ref.SnapshotID)
 		}
 	}
+
 	return nil
 }
 
@@ -1629,6 +1638,7 @@ func (m *metadataV2) UnmarshalJSON(b []byte) error {
 	if err := m.checkLastSequenceNumber(); err != nil {
 		return err
 	}
+
 	return m.validate()
 }
 
@@ -1639,6 +1649,7 @@ func (m *metadataV2) checkLastSequenceNumber() error {
 				ErrInvalidMetadata, snap.SnapshotID, snap.SequenceNumber, m.LastSequenceNumber())
 		}
 	}
+
 	return nil
 }
 

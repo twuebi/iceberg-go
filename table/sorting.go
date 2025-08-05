@@ -161,6 +161,7 @@ func (s SortOrder) CheckCompatibility(schema *iceberg.Schema) error {
 		// 	return fmt.Errorf("invalid source type %s for transform %s: %w", f.Type.Type(), field.Transform, err)
 		// }
 	}
+
 	return nil
 }
 
