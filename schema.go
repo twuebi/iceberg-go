@@ -335,6 +335,10 @@ func (s *Schema) Equals(other *Schema) bool {
 		return false
 	}
 
+	if s == nil {
+		return false
+	}
+
 	if s == other {
 		return true
 	}

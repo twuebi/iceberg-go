@@ -19,7 +19,6 @@ package table
 
 import (
 	"encoding/json"
-	"errors"
 	"testing"
 
 	"github.com/apache/iceberg-go"
@@ -143,11 +142,9 @@ func TestUnmarshalUpdates(t *testing.T) {
   }
 ]`),
 			expected: Updates{
-				NewAddSchemaUpdate(
-					iceberg.NewSchema(1,
-						iceberg.NestedField{ID: 1, Name: "foo", Type: iceberg.StringType{}, Required: true},
-					), 1, false,
-				),
+				NewAddSchemaUpdate(iceberg.NewSchema(1,
+					iceberg.NestedField{ID: 1, Name: "foo", Type: iceberg.StringType{}, Required: true},
+				)),
 				NewAddPartitionSpecUpdate(
 					&spec, false),
 				NewAddSortOrderUpdate(&sortOrder, false),
@@ -202,7 +199,6 @@ func TestUnmarshalUpdates(t *testing.T) {
 						actualAddSchema := actual[idx].(*addSchemaUpdate)
 						assert.True(t, expectedAddSchema.Schema.Equals(actualAddSchema.Schema))
 						assert.Equal(t, actualAddSchema.initial, expectedAddSchema.initial)
-						assert.Equal(t, actualAddSchema.LastColumnID, expectedAddSchema.LastColumnID)
 					case "add-partition-spec":
 						expectedAddPartitionSpec := u.(*addPartitionSpecUpdate)
 						actualAddPartitionSpec := actual[idx].(*addPartitionSpecUpdate)
@@ -220,28 +216,4 @@ func TestUnmarshalUpdates(t *testing.T) {
 			}
 		})
 	}
-}
-
-func TestRemoveSchemas(t *testing.T) {
-	var builder *MetadataBuilder
-	removeSchemas := removeSchemasUpdate{
-		SchemaIds: []int64{},
-	}
-	t.Run("remove schemas should fail", func(t *testing.T) {
-		if err := removeSchemas.Apply(builder); !errors.Is(err, iceberg.ErrNotImplemented) {
-			t.Fatalf("Expected unimplemented error, got %v", err)
-		}
-	})
-}
-
-func TestRemovePartitionSpecs(t *testing.T) {
-	var builder *MetadataBuilder
-	removeSpecs := removeSpecUpdate{
-		SpecIds: []int64{},
-	}
-	t.Run("remove specs should fail", func(t *testing.T) {
-		if err := removeSpecs.Apply(builder); !errors.Is(err, iceberg.ErrNotImplemented) {
-			t.Fatalf("Expected unimplemented error, got %v", err)
-		}
-	})
 }
