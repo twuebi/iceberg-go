@@ -715,6 +715,7 @@ func TestAddPartitionSpecForV1RequiresSequentialIDs(t *testing.T) {
 func TestExpireMetadataLog(t *testing.T) {
 	builder1 := builderWithoutChanges(2)
 	meta, err := builder1.Build()
+	require.NoError(t, err)
 	loc := "s3://bla"
 	builder, err := MetadataBuilderFromBase(meta, &loc)
 	require.NoError(t, err)
