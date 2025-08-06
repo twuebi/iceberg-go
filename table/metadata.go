@@ -908,11 +908,12 @@ func (b *MetadataBuilder) updateSnapshotLog() error {
 		if b.currentSnapshotID != nil {
 			last := newSnapsLog[len(newSnapsLog)-1]
 			if last.SnapshotID != *b.currentSnapshotID {
-				return fmt.Errorf("cannot set invalid snapshot log: latest entry is not the current snapshot")
+				return errors.New("cannot set invalid snapshot log: latest entry is not the current snapshot")
 			}
 		}
 		b.snapshotLog = newSnapsLog
 	}
+
 	return nil
 }
 
