@@ -116,6 +116,9 @@ func AddPartitionFieldBySourceID(sourceID int, targetName string, transform Tran
 
 func AddPartitionFieldByName(sourceName string, targetName string, transform Transform, schema *Schema, fieldID *int) PartitionOption {
 	return func(p *PartitionSpec) error {
+		if schema == nil {
+			return errors.New("cannot add partition field with nil schema")
+		}
 		field, ok := schema.FindFieldByName(sourceName)
 
 		if !ok {
@@ -179,6 +182,7 @@ func NewPartitionSpecOpts(opts ...PartitionOption) (PartitionSpec, error) {
 		}
 	}
 	spec.initialize()
+
 	return spec, nil
 }
 
