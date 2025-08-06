@@ -319,7 +319,7 @@ func MetadataBuilderFromBase(metadata Metadata, currentFileLocation *string) (*M
 	b.formatVersion = metadata.Version()
 	b.uuid = metadata.TableUUID()
 	b.loc = metadata.Location()
-	b.lastUpdatedMS = metadata.LastUpdatedMillis()
+	b.lastUpdatedMS = 0
 	b.lastColumnId = metadata.LastColumnID()
 	b.schemaList = slices.Clone(metadata.Schemas())
 	b.currentSchemaID = metadata.CurrentSchema().ID
