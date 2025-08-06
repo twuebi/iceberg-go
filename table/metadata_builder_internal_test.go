@@ -784,7 +784,7 @@ func TestV2SequenceNumberCannotDecrease(t *testing.T) {
 		SchemaID: &schemaID,
 	}
 	_, err = builderRef.AddSnapshot(&snapshot2)
-	require.ErrorContains(t, err, "cannot add snapshot with sequence number 0, previous snapshot has sequence number 1")
+	require.ErrorContains(t, err, "can't add snapshot with sequence number 0, must be > than last sequence number 1")
 }
 
 func TestDefaultSpecCannotBeRemoved(t *testing.T) {

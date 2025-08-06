@@ -492,11 +492,10 @@ func (b *MetadataBuilder) AddSnapshot(snapshot *Snapshot) (*MetadataBuilder, err
 	} else if s, _ := b.SnapshotByID(snapshot.SnapshotID); s != nil {
 		return nil, fmt.Errorf("can't add snapshot with id %d, already exists", snapshot.SnapshotID)
 	} else if b.formatVersion == 2 &&
-		snapshot.SequenceNumber > 0 &&
 		snapshot.ParentSnapshotID != nil &&
 		snapshot.SequenceNumber <= *b.lastSequenceNumber {
 		return nil, fmt.Errorf("can't add snapshot with sequence number %d, must be > than last sequence number %d",
-			snapshot.SequenceNumber, b.lastSequenceNumber)
+			snapshot.SequenceNumber, *b.lastSequenceNumber)
 	}
 
 	b.updates = append(b.updates, NewAddSnapshotUpdate(snapshot))
