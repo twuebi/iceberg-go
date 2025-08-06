@@ -1739,3 +1739,24 @@ func NewMetadataWithUUID(sc *iceberg.Schema, partitions *iceberg.PartitionSpec, 
 		return nil, fmt.Errorf("invalid format version: %d", formatVersion)
 	}
 }
+
+func UpdateTableMetadata(base Metadata, updates []Update, metadataLoc string) (Metadata, error) {
+	var loc *string
+	if metadataLoc != "" {
+		loc = &metadataLoc
+	} else {
+		loc = nil
+	}
+	bldr, err := MetadataBuilderFromBase(base, loc)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, update := range updates {
+		if err := update.Apply(bldr); err != nil {
+			return nil, err
+		}
+	}
+
+	return bldr.Build()
+}

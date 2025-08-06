@@ -73,38 +73,6 @@ func WriteMetadata(ctx context.Context, metadata table.Metadata, loc string, pro
 	return json.NewEncoder(out).Encode(metadata)
 }
 
-func UpdateTableMetadata(base table.Metadata, updates []table.Update, metadataLoc string) (table.Metadata, error) {
-	bldr, err := table.MetadataBuilderFromBase(base, nil)
-	if err != nil {
-		return nil, err
-	}
-
-	for _, update := range updates {
-		if err := update.Apply(bldr); err != nil {
-			return nil, err
-		}
-	}
-
-	if bldr.HasChanges() {
-		if metadataLoc != "" {
-			maxMetadataLogEntries := max(1,
-				base.Properties().GetInt(
-					table.MetadataPreviousVersionsMaxKey, table.MetadataPreviousVersionsMaxDefault))
-
-			bldr.TrimMetadataLogs(maxMetadataLogEntries + 1).
-				AppendMetadataLog(table.MetadataLogEntry{
-					MetadataFile: metadataLoc,
-					TimestampMs:  base.LastUpdatedMillis(),
-				})
-		}
-		if base.LastUpdatedMillis() == bldr.LastUpdatedMS() {
-			bldr.SetLastUpdatedMS()
-		}
-	}
-
-	return bldr.Build()
-}
-
 func CreateStagedTable(ctx context.Context, catprops iceberg.Properties, nspropsFn GetNamespacePropsFn, ident table.Identifier, sc *iceberg.Schema, opts ...catalog.CreateTableOpt) (table.StagedTable, error) {
 	var cfg catalog.CreateTableCfg
 	for _, opt := range opts {
@@ -226,7 +194,7 @@ func UpdateAndStageTable(ctx context.Context, current *table.Table, ident table.
 		}
 	}
 
-	updated, err := UpdateTableMetadata(baseMeta, updates, metadataLoc)
+	updated, err := table.UpdateTableMetadata(baseMeta, updates, metadataLoc)
 	if err != nil {
 		return nil, err
 	}
