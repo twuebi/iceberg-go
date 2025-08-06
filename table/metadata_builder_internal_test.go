@@ -94,24 +94,24 @@ func TestMinimalBuild(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, meta)
 
-	require.Equal(t, meta.FormatVersion(), 1)
-	require.Equal(t, meta.Location, TestLocation)
-	require.Equal(t, meta.CurrentSchema().ID, 0)
-	require.Equal(t, meta.DefaultPartitionSpec(), 0)
-	require.Equal(t, meta.DefaultSortOrder(), 1)
-	require.Equal(t, meta.LastPartitionSpecID(), 1000)
-	require.Equal(t, meta.LastColumnID(), 3)
-	require.Equal(t, len(meta.Snapshots()), 0)
+	require.Equal(t, 1, meta.FormatVersion())
+	require.Equal(t, TestLocation, meta.Location())
+	require.Equal(t, 0, meta.CurrentSchema().ID)
+	require.Equal(t, 0, meta.DefaultPartitionSpec())
+	require.Equal(t, 1, meta.DefaultSortOrder())
+	require.Equal(t, 1000, *meta.LastPartitionSpecID())
+	require.Equal(t, 3, meta.LastColumnID())
+	require.Equal(t, 0, len(meta.Snapshots()))
 	require.Nil(t, meta.CurrentSnapshot())
 	for range meta.Refs() {
 		t.Fatalf("refs should be empty.")
 	}
-	require.Equal(t, len(meta.Properties()), 0)
+	require.Equal(t, 0, len(meta.Properties()))
 	for range meta.PreviousFiles() {
 		t.Fatalf("metadata log should be empty.")
 	}
-	require.Equal(t, meta.LastSequenceNumber(), 0)
-	require.Equal(t, meta.LastColumnID(), LastAssignedColumnID)
+	require.Equal(t, int64(0), meta.LastSequenceNumber())
+	require.Equal(t, LastAssignedColumnID, meta.LastColumnID())
 }
 
 func TestBuildUnpartitionedUnsorted(t *testing.T) {
@@ -714,13 +714,16 @@ func TestAddPartitionSpecForV1RequiresSequentialIDs(t *testing.T) {
 }
 
 func TestExpireMetadataLog(t *testing.T) {
-	builder := builderWithoutChanges(2)
-	_, err := builder.SetProperties(map[string]string{
+	builder1 := builderWithoutChanges(2)
+	meta, err := builder1.Build()
+	loc := "s3://bla"
+	builder, err := MetadataBuilderFromBase(meta, &loc)
+	require.NoError(t, err)
+	_, err = builder.SetProperties(map[string]string{
 		MetadataPreviousVersionsMaxKey: "2",
 	})
 	require.NoError(t, err)
-	require.Len(t, builder.metadataLog, 1)
-	meta, err := builder.Build()
+	meta, err = builder.Build()
 	require.NoError(t, err)
 	require.Len(t, meta.(*metadataV2).MetadataLog, 1)
 
@@ -731,7 +734,6 @@ func TestExpireMetadataLog(t *testing.T) {
 		"change_nr": "1",
 	})
 	require.NoError(t, err)
-	require.Len(t, newBuilder.metadataLog, 2)
 	meta, err = newBuilder.Build()
 	require.NoError(t, err)
 	require.Len(t, meta.(*metadataV2).MetadataLog, 2)
@@ -742,7 +744,6 @@ func TestExpireMetadataLog(t *testing.T) {
 		"change_nr": "2",
 	})
 	require.NoError(t, err)
-	require.Len(t, newBuilder.metadataLog, 3)
 	meta, err = newBuilder.Build()
 	require.NoError(t, err)
 	require.Len(t, meta.(*metadataV2).MetadataLog, 2)

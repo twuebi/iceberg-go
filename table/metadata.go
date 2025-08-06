@@ -836,8 +836,15 @@ func (b *MetadataBuilder) buildCommonMetadata() (*commonMetadata, error) {
 	if b.lastUpdatedMS == 0 {
 		b.lastUpdatedMS = time.Now().UnixMilli()
 	}
-	if b.previousFileEntry != nil {
-		b.metadataLog = append(b.metadataLog, *b.previousFileEntry)
+
+	if b.previousFileEntry != nil && b.HasChanges() {
+		maxMetadataLogEntries := max(1,
+			b.base.Properties().GetInt(
+				MetadataPreviousVersionsMaxKey, MetadataPreviousVersionsMaxDefault))
+
+		b.AppendMetadataLog(*b.previousFileEntry)
+		b.TrimMetadataLogs(maxMetadataLogEntries)
+
 	}
 
 	return &commonMetadata{
