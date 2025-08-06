@@ -710,7 +710,7 @@ func TestAddPartitionSpecForV1RequiresSequentialIDs(t *testing.T) {
 	require.NoError(t, err)
 
 	_, err = builder.AddPartitionSpec(&addedSpec, false)
-	require.ErrorContains(t, err, "Partition spec ID must be sequential for format version 1")
+	require.ErrorContains(t, err, "v1 constraint: partition field IDs are not sequential: expected 1001, got 1002")
 }
 
 func TestExpireMetadataLog(t *testing.T) {

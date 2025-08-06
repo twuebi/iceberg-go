@@ -244,7 +244,7 @@ func NewMetadataBuilderFromPieces(schema *iceberg.Schema, spec iceberg.Partition
 	builder = MetadataBuilder{
 		base:               metadata,
 		updates:            nil,
-		formatVersion:      2,
+		formatVersion:      formatVersion,
 		uuid:               tableID,
 		loc:                location,
 		lastUpdatedMS:      0,
@@ -290,6 +290,7 @@ func NewMetadataBuilderFromPieces(schema *iceberg.Schema, spec iceberg.Partition
 		return nil, err
 	}
 	builder.updates = make([]Update, 0)
+
 	return &builder, nil
 }
 
@@ -445,8 +446,17 @@ func (b *MetadataBuilder) AddPartitionSpec(spec *iceberg.PartitionSpec, initial 
 	}
 
 	maxFieldID := 0
+	fieldCount := 0
 	for f := range spec.Fields() {
 		maxFieldID = max(maxFieldID, f.FieldID)
+		if b.formatVersion <= 1 {
+			expectedID := partitionFieldStartID + fieldCount
+			if f.FieldID != expectedID {
+				return nil, fmt.Errorf("v1 constraint: partition field IDs are not sequential: expected %d, got %d", expectedID, f.FieldID)
+			}
+			fieldCount++
+		}
+
 	}
 
 	prev := partitionFieldStartID - 1
