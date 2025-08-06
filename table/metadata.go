@@ -833,6 +833,10 @@ func (b *MetadataBuilder) SetLastUpdatedMS() *MetadataBuilder {
 }
 
 func (b *MetadataBuilder) buildCommonMetadata() (*commonMetadata, error) {
+	if err := b.updateSnapshotLog(); err != nil {
+		return nil, err
+	}
+
 	if b.lastUpdatedMS == 0 {
 		b.lastUpdatedMS = time.Now().UnixMilli()
 	}
@@ -867,6 +871,49 @@ func (b *MetadataBuilder) buildCommonMetadata() (*commonMetadata, error) {
 		DefaultSortOrderID: b.defaultSortOrderID,
 		SnapshotRefs:       b.refs,
 	}, nil
+}
+
+func (b *MetadataBuilder) updateSnapshotLog() error {
+	addedIDs := make(map[int64]struct{}, 2)
+	hasRemoved := false
+	for _, upd := range b.updates {
+		if up, ok := upd.(*addSnapshotUpdate); ok {
+			addedIDs[up.Snapshot.SnapshotID] = struct{}{}
+			// upd is of type *addSnapshotUpdate, and ok is true
+			// You can now use the upd variable within this block
+		}
+		if _, ok := upd.(*removeSnapshotsUpdate); ok {
+			hasRemoved = true
+		}
+	}
+	intermediateIDs := make(map[int64]struct{}, 2)
+	for _, upd := range b.updates {
+		if s, ok := upd.(*setSnapshotRefUpdate); ok {
+			if _, ok := addedIDs[s.SnapshotID]; ok && s.RefName == MainBranch && ((b.currentSnapshotID != nil && s.SnapshotID != *b.currentSnapshotID) || (s.SnapshotID == -1)) {
+				intermediateIDs[s.SnapshotID] = struct{}{}
+			}
+		}
+	}
+	if len(intermediateIDs) != 0 || hasRemoved {
+		newSnapsLog := make([]SnapshotLogEntry, 0, len(b.snapshotLog))
+		for _, s := range b.snapshotLog {
+			if snap, _ := b.SnapshotByID(s.SnapshotID); snap != nil {
+				if _, ok := intermediateIDs[s.SnapshotID]; !ok {
+					newSnapsLog = append(newSnapsLog, s)
+				}
+			} else if hasRemoved {
+				newSnapsLog = make([]SnapshotLogEntry, 0, len(b.snapshotLog)-len(newSnapsLog))
+			}
+		}
+		if b.currentSnapshotID != nil {
+			last := newSnapsLog[len(newSnapsLog)-1]
+			if last.SnapshotID != *b.currentSnapshotID {
+				return fmt.Errorf("cannot set invalid snapshot log: latest entry is not the current snapshot")
+			}
+		}
+		b.snapshotLog = newSnapsLog
+	}
+	return nil
 }
 
 func (b *MetadataBuilder) GetSchemaByID(id int) (*iceberg.Schema, error) {

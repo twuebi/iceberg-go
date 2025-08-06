@@ -609,11 +609,10 @@ func TestSnapshotLogSkipsIntermediate(t *testing.T) {
 	res, err := builder.Build()
 	require.NoError(t, err)
 	require.NotNil(t, res)
-	// Intermediate snapshots are currently not skipped and we fail, cf. Rust TableMetadataBuilder::build() : update_snapshot_log
+
 	require.Len(t, res.(*metadataV2).SnapshotLog, 1)
 	snap := res.(*metadataV2).SnapshotLog[0]
 	require.NotNil(t, snap)
-	require.Equal(t, snap.SnapshotID, int64(1))
 	require.Equal(t, snap, SnapshotLogEntry{
 		SnapshotID:  2,
 		TimestampMs: snapshot2.TimestampMs,
