@@ -843,6 +843,25 @@ func TestConstructDefaultMainBranch(t *testing.T) {
 	require.Equal(t, meta.(*metadataV2).SnapshotRefs[MainBranch].SnapshotID, meta.CurrentSnapshot().SnapshotID)
 }
 
+func TestRemoveMainSnapshotRef(t *testing.T) {
+	meta, err := getTestTableMetadata("TableMetadataV2Valid.json")
+	require.NoError(t, err)
+	require.NotNil(t, meta)
+	require.NotNil(t, meta.CurrentSnapshot())
+	builder, err := MetadataBuilderFromBase(meta, nil)
+	require.NoError(t, err)
+	require.NotNil(t, builder.currentSnapshotID)
+	if _, ok := builder.refs[MainBranch]; !ok {
+		t.Fatal("expected main branch to exist")
+	}
+	_, err = builder.RemoveSnapshotRef(MainBranch)
+	require.NoError(t, err)
+	require.Nil(t, builder.currentSnapshotID)
+	meta, err = builder.Build()
+	require.NoError(t, err)
+	require.NotNil(t, meta)
+}
+
 func TestActiveSchemaCannotBeRemoved(t *testing.T) {
 	builder := builderWithoutChanges(2)
 
