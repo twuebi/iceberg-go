@@ -147,7 +147,7 @@ func TestUnmarshalUpdates(t *testing.T) {
 				)),
 				NewAddPartitionSpecUpdate(
 					&spec, false),
-				NewAddSortOrderUpdate(&sortOrder, false),
+				NewAddSortOrderUpdate(&sortOrder),
 				NewSetCurrentSchemaUpdate(1),
 			},
 			expectedErr: false,

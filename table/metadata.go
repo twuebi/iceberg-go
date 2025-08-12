@@ -281,7 +281,7 @@ func NewMetadataBuilderFromPieces(schema *iceberg.Schema, spec iceberg.Partition
 	if err != nil {
 		return nil, err
 	}
-	_, err = builder.AddSortOrder(&freshOrder, true)
+	_, err = builder.AddSortOrder(&freshOrder)
 	if err != nil {
 		return nil, err
 	}
@@ -522,23 +522,20 @@ func (b *MetadataBuilder) RemoveSnapshots(snapshotIds []int64) (*MetadataBuilder
 	return b, nil
 }
 
-func (b *MetadataBuilder) AddSortOrder(sortOrder *SortOrder, initial bool) (*MetadataBuilder, error) {
+func (b *MetadataBuilder) AddSortOrder(sortOrder *SortOrder) (*MetadataBuilder, error) {
 	newOrderID := b.reuseOrCreateNewSortOrderID(sortOrder)
 	if _, err := b.GetSortOrderByID(newOrderID); err == nil {
 		if b.lastAddedSortOrderID != &newOrderID {
 			b.lastAddedSortOrderID = &newOrderID
 			sortOrder.OrderID = newOrderID
-			b.updates = append(b.updates, NewAddSortOrderUpdate(sortOrder, initial))
+			b.updates = append(b.updates, NewAddSortOrderUpdate(sortOrder))
 		}
 
 		return b, nil
 	}
 	sortOrder.OrderID = newOrderID
 
-	var sortOrders []SortOrder
-	if !initial {
-		sortOrders = append(sortOrders, b.sortOrderList...)
-	}
+	sortOrders := b.sortOrderList
 
 	if err := sortOrder.CheckCompatibility(b.CurrentSchema()); err != nil {
 		return nil, fmt.Errorf("sort order %s is not compatible with current schema: %w", sortOrder, err)
@@ -551,7 +548,7 @@ func (b *MetadataBuilder) AddSortOrder(sortOrder *SortOrder, initial bool) (*Met
 	}
 
 	b.sortOrderList = append(sortOrders, *sortOrder)
-	b.updates = append(b.updates, NewAddSortOrderUpdate(sortOrder, initial))
+	b.updates = append(b.updates, NewAddSortOrderUpdate(sortOrder))
 
 	return b, nil
 }

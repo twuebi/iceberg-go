@@ -412,7 +412,7 @@ func TestAddSortOrder(t *testing.T) {
 	s := schema()
 	err := addedSortOrder.CheckCompatibility(&s)
 	require.NoError(t, err)
-	builderRef, err := builder.AddSortOrder(&addedSortOrder, false)
+	builderRef, err := builder.AddSortOrder(&addedSortOrder)
 	require.NoError(t, err)
 	require.NotNil(t, builderRef)
 	expectedSortOrder := SortOrder{
@@ -439,8 +439,7 @@ func TestAddSortOrder(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, sO.Equals(expectedSortOrder))
 	order := sortOrder()
-	update := NewAddSortOrderUpdate(
-		&order, false)
+	update := NewAddSortOrderUpdate(&order)
 	require.Equal(t, update.Action(), builderRef.updates[0].Action())
 }
 
@@ -508,7 +507,7 @@ func TestFromMetadataCreatesLogEntry(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, newBuilder)
 
-	_, err = newBuilder.AddSortOrder(&UnsortedSortOrder, false)
+	_, err = newBuilder.AddSortOrder(&UnsortedSortOrder)
 	require.NoError(t, err)
 
 	// Build the metadata again
