@@ -1206,9 +1206,9 @@ func (t *TableWritingTestSuite) TestMergeManifests() {
 
 	// entries should match the snapshot ID they were added in
 	snapshotList := tblA.Metadata().Snapshots()
-	slices.Reverse(snapshotList)
+
 	for i, entry := range entries {
-		t.Equal(snapshotList[i].SnapshotID, entry.SnapshotID())
+		t.Equal(snapshotList[entry.SnapshotID()].SnapshotID, entry.SnapshotID())
 		if t.formatVersion > 1 {
 			t.EqualValues(3-i, entry.SequenceNum())
 		}

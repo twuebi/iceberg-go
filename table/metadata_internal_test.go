@@ -187,14 +187,14 @@ func TestMetadataV2Parsing(t *testing.T) {
 	assert.Equal(t, 1000, *data.LastPartitionID)
 	assert.EqualValues(t, "134217728", data.Props["read.split.target.size"])
 	assert.EqualValues(t, 3055729675574597004, *data.CurrentSnapshotID)
-	assert.EqualValues(t, 3051729675574597004, data.SnapshotList[0].SnapshotID)
+	assert.EqualValues(t, 3051729675574597004, data.SnapshotList[3051729675574597004].SnapshotID)
 	assert.Equal(t, int64(1515100955770), data.SnapshotLog[0].TimestampMs)
 	assert.Equal(t, 3, data.SortOrderList[0].OrderID)
 	assert.Equal(t, 3, data.DefaultSortOrderID)
 
 	assert.Len(t, meta.Snapshots(), 2)
-	assert.Equal(t, data.SnapshotList[1], *meta.CurrentSnapshot())
-	assert.Equal(t, data.SnapshotList[0], *meta.SnapshotByName("test"))
+	assert.Equal(t, data.SnapshotList[3055729675574597004], *meta.CurrentSnapshot())
+	assert.Equal(t, data.SnapshotList[3051729675574597004], *meta.SnapshotByName("test"))
 	assert.EqualValues(t, "134217728", meta.Properties()["read.split.target.size"])
 }
 
@@ -1031,7 +1031,7 @@ func TestTableDataV2NoSnapshots(t *testing.T) {
 			DefaultSpecID:     0,
 			LastPartitionID:   &i,
 			Props:             map[string]string{},
-			SnapshotList:      []Snapshot{},
+			SnapshotList:      map[int64]Snapshot{},
 			CurrentSnapshotID: nil,
 			SnapshotLog:       []SnapshotLogEntry{},
 			MetadataLog: []MetadataLogEntry{
@@ -1669,9 +1669,9 @@ func TestTableMetadataV2FileValid(t *testing.T) {
 			DefaultSpecID:   0,
 			LastPartitionID: &i,
 			Props:           map[string]string{},
-			SnapshotList: []Snapshot{
-				snapshot1,
-				snapshot2,
+			SnapshotList: map[int64]Snapshot{
+				snapshot1.SnapshotID: snapshot1,
+				snapshot2.SnapshotID: snapshot2,
 			},
 			CurrentSnapshotID: &curSnap,
 			SnapshotLog: []SnapshotLogEntry{
@@ -1826,7 +1826,7 @@ func TestTableMetadataV1FileValid(t *testing.T) {
 			DefaultSpecID:     0,
 			LastPartitionID:   &i,
 			Props:             map[string]string{},
-			SnapshotList:      []Snapshot{},
+			SnapshotList:      map[int64]Snapshot{},
 			CurrentSnapshotID: nil,
 			SnapshotLog:       []SnapshotLogEntry{},
 			MetadataLog:       []MetadataLogEntry{},

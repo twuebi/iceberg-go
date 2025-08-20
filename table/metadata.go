@@ -99,7 +99,7 @@ type Metadata interface {
 	// snapshots for which all data files exist in the file system. A data
 	// file must not be deleted from the file system until the last snapshot
 	// in which it was listed is garbage collected.
-	Snapshots() []Snapshot
+	Snapshots() map[int64]Snapshot
 	// SnapshotByID find and return a specific snapshot by its ID. Returns
 	// nil if the ID is not found in the list of snapshots.
 	SnapshotByID(int64) *Snapshot
@@ -154,7 +154,7 @@ type MetadataBuilder struct {
 	defaultSpecID      int
 	lastPartitionID    *int
 	props              iceberg.Properties
-	snapshotList       []Snapshot
+	snapshotList       map[int64]Snapshot
 	currentSnapshotID  *int64
 	snapshotLog        []SnapshotLogEntry
 	metadataLog        []MetadataLogEntry
@@ -255,7 +255,7 @@ func NewMetadataBuilderFromPieces(schema *iceberg.Schema, spec iceberg.Partition
 		defaultSpecID:      -1,
 		lastPartitionID:    &lastPartitionID,
 		props:              properties,
-		snapshotList:       []Snapshot{},
+		snapshotList:       make(map[int64]Snapshot),
 		currentSnapshotID:  nil,
 		snapshotLog:        []SnapshotLogEntry{},
 		metadataLog:        []MetadataLogEntry{},
@@ -300,7 +300,7 @@ func NewMetadataBuilder() (*MetadataBuilder, error) {
 		schemaList:    make(map[int]*iceberg.Schema),
 		specs:         make([]iceberg.PartitionSpec, 0),
 		props:         make(iceberg.Properties),
-		snapshotList:  make([]Snapshot, 0),
+		snapshotList:  make(map[int64]Snapshot),
 		snapshotLog:   make([]SnapshotLogEntry, 0),
 		metadataLog:   make([]MetadataLogEntry, 0),
 		sortOrderList: make([]SortOrder, 0),
@@ -328,7 +328,7 @@ func MetadataBuilderFromBase(metadata Metadata, currentFileLocation *string) (*M
 	b.defaultSpecID = defaultSpecID
 	b.lastPartitionID = metadata.LastPartitionSpecID()
 	b.props = maps.Clone(metadata.Properties())
-	b.snapshotList = slices.Clone(metadata.Snapshots())
+	b.snapshotList = maps.Clone(metadata.Snapshots())
 	b.sortOrderList = slices.Clone(metadata.SortOrders())
 	b.defaultSortOrderID = metadata.DefaultSortOrder()
 	if metadata.Version() > 1 {
@@ -383,7 +383,7 @@ func (b *MetadataBuilder) nextSequenceNumber() int64 {
 
 func (b *MetadataBuilder) newSnapshotID() int64 {
 	snapshotID := generateSnapshotID()
-	for slices.ContainsFunc(b.snapshotList, func(s Snapshot) bool { return s.SnapshotID == snapshotID }) {
+	for _, ok := b.snapshotList[snapshotID]; ok; {
 		snapshotID = generateSnapshotID()
 	}
 
@@ -501,7 +501,7 @@ func (b *MetadataBuilder) AddSnapshot(snapshot *Snapshot) (*MetadataBuilder, err
 	b.updates = append(b.updates, NewAddSnapshotUpdate(snapshot))
 	b.lastUpdatedMS = snapshot.TimestampMs
 	b.lastSequenceNumber = &snapshot.SequenceNumber
-	b.snapshotList = append(b.snapshotList, *snapshot)
+	b.snapshotList[snapshot.SnapshotID] = *snapshot
 
 	return b, nil
 }
@@ -510,14 +510,18 @@ func (b *MetadataBuilder) RemoveSnapshots(snapshotIds []int64) (*MetadataBuilder
 	if slices.Contains(snapshotIds, *b.currentSnapshotID) {
 		return nil, errors.New("current snapshot cannot be removed")
 	}
-
-	b.snapshotList = slices.DeleteFunc(b.snapshotList, func(e Snapshot) bool {
-		return slices.Contains(snapshotIds, e.SnapshotID)
-	})
+	removed := make([]int64, len(snapshotIds))
+	for _, id := range snapshotIds {
+		_, ok := b.snapshotList[id]
+		if ok {
+			delete(b.snapshotList, id)
+			removed = append(removed, id)
+		}
+	}
 	b.snapshotLog = slices.DeleteFunc(b.snapshotLog, func(e SnapshotLogEntry) bool {
 		return slices.Contains(snapshotIds, e.SnapshotID)
 	})
-	b.updates = append(b.updates, NewRemoveSnapshotsUpdate(snapshotIds))
+	b.updates = append(b.updates, NewRemoveSnapshotsUpdate(removed))
 
 	return b, nil
 }
@@ -951,13 +955,11 @@ func (b *MetadataBuilder) GetSortOrderByID(id int) (*SortOrder, error) {
 }
 
 func (b *MetadataBuilder) SnapshotByID(id int64) (*Snapshot, error) {
-	for _, s := range b.snapshotList {
-		if s.SnapshotID == id {
-			return &s, nil
-		}
+	snap, ok := b.snapshotList[id]
+	if !ok {
+		return nil, fmt.Errorf("snapshot with id %d not found", id)
 	}
-
-	return nil, fmt.Errorf("snapshot with id %d not found", id)
+	return &snap, nil
 }
 
 func (b *MetadataBuilder) NameMapping() iceberg.NameMapping {
@@ -1206,7 +1208,7 @@ type commonMetadata struct {
 	DefaultSpecID      int                     `json:"default-spec-id"`
 	LastPartitionID    *int                    `json:"last-partition-id,omitempty"`
 	Props              iceberg.Properties      `json:"properties,omitempty"`
-	SnapshotList       []Snapshot              `json:"snapshots,omitempty"`
+	SnapshotList       map[int64]Snapshot      `json:"-"`
 	CurrentSnapshotID  *int64                  `json:"current-snapshot-id,omitempty"`
 	SnapshotLog        []SnapshotLogEntry      `json:"snapshot-log,omitempty"`
 	MetadataLog        []MetadataLogEntry      `json:"metadata-log,omitempty"`
@@ -1273,7 +1275,9 @@ func (c *commonMetadata) Equals(other *commonMetadata) bool {
 		return s1.Equals(s2)
 	}) && !((len(c.SchemaList) == 0 && other.SchemaList == nil) || (len(other.SchemaList) == 0 && c.SchemaList == nil)):
 		fallthrough
-	case !sliceEqualHelper(c.SnapshotList, other.SnapshotList) && !((len(c.SnapshotList) == 0 && other.SnapshotList == nil) || (len(other.SnapshotList) == 0 && c.SnapshotList == nil)):
+	case !maps.EqualFunc(c.SnapshotList, other.SnapshotList, func(s1, s2 Snapshot) bool {
+		return s1.Equals(s2)
+	}) && !((len(c.SnapshotList) == 0 && other.SnapshotList == nil) || (len(other.SnapshotList) == 0 && c.SnapshotList == nil)):
 		fallthrough
 	case !sliceEqualHelper(c.Specs, other.Specs) && !((len(c.Specs) == 0 && other.Specs == nil) || (len(other.Specs) == 0 && c.Specs == nil)):
 		fallthrough
@@ -1326,12 +1330,13 @@ func (c *commonMetadata) PartitionSpec() iceberg.PartitionSpec {
 }
 
 func (c *commonMetadata) LastPartitionSpecID() *int { return c.LastPartitionID }
-func (c *commonMetadata) Snapshots() []Snapshot     { return c.SnapshotList }
+func (c *commonMetadata) Snapshots() map[int64]Snapshot {
+	return c.SnapshotList
+}
+
 func (c *commonMetadata) SnapshotByID(id int64) *Snapshot {
-	for i := range c.SnapshotList {
-		if c.SnapshotList[i].SnapshotID == id {
-			return &c.SnapshotList[i]
-		}
+	if s, ok := c.SnapshotList[id]; ok {
+		return &s
 	}
 
 	return nil
@@ -1628,8 +1633,8 @@ func (m *metadataV1) UnmarshalJSON(b []byte) error {
 	}
 
 	type jsonFormat struct {
-		Schemas []*iceberg.Schema `json:"schemas"`
-		// Other fields...
+		Schemas   []*iceberg.Schema `json:"schemas"`
+		Snapshots []Snapshot        `json:"snapshots,omitempty"`
 	}
 	var temp jsonFormat
 	if err := json.Unmarshal(b, &temp); err != nil {
@@ -1638,6 +1643,10 @@ func (m *metadataV1) UnmarshalJSON(b []byte) error {
 	aux.SchemaList = make(map[int]*iceberg.Schema, len(temp.Schemas))
 	for i := range temp.Schemas {
 		aux.SchemaList[temp.Schemas[i].ID] = temp.Schemas[i]
+	}
+	aux.SnapshotList = make(map[int64]Snapshot, len(temp.Snapshots))
+	for i := range temp.Snapshots {
+		aux.SnapshotList[temp.Snapshots[i].SnapshotID] = temp.Snapshots[i]
 	}
 
 	// CurrentSchemaID was optional in v1, it can also be expressed via Schema.
@@ -1663,16 +1672,22 @@ func (m metadataV1) MarshalJSON() ([]byte, error) {
 	for _, schema := range m.SchemaList {
 		schemas = append(schemas, schema)
 	}
+	snapshots := make([]Snapshot, 0, len(m.SnapshotList))
+	for _, snapshot := range m.SnapshotList {
+		snapshots = append(snapshots, snapshot)
+	}
+
 	type metadataV1JSON metadataV1
 
 	// Temporary struct for marshaling
 	temp := struct {
 		metadataV1JSON
-		Schemas []*iceberg.Schema `json:"schemas"`
-		// Other fields...
+		Schemas   []*iceberg.Schema `json:"schemas"`
+		Snapshots []Snapshot        `json:"snapshots,omitempty"`
 	}{
 		metadataV1JSON: (metadataV1JSON)(m),
 		Schemas:        schemas,
+		Snapshots:      snapshots,
 	}
 
 	return json.Marshal(temp)
@@ -1726,16 +1741,22 @@ func (m metadataV2) MarshalJSON() ([]byte, error) {
 	for _, schema := range m.SchemaList {
 		schemas = append(schemas, schema)
 	}
+
+	snapshots := make([]Snapshot, 0, len(m.SnapshotList))
+	for _, snapshot := range m.SnapshotList {
+		snapshots = append(snapshots, snapshot)
+	}
 	type metadataV2JSON metadataV2
 
 	// Temporary struct for marshaling
 	temp := struct {
 		metadataV2JSON
-		Schemas []*iceberg.Schema `json:"schemas"`
-		// Other fields...
+		Schemas   []*iceberg.Schema `json:"schemas"`
+		Snapshots []Snapshot        `json:"snapshots,omitempty"`
 	}{
 		metadataV2JSON: (metadataV2JSON)(m),
 		Schemas:        schemas,
+		Snapshots:      snapshots,
 	}
 
 	return json.Marshal(temp)
@@ -1753,22 +1774,27 @@ func (m *metadataV2) UnmarshalJSON(b []byte) error {
 	}
 
 	m.preValidate()
-	if err := m.checkLastSequenceNumber(); err != nil {
-		return err
-	}
 
 	type jsonFormat struct {
-		Schemas []*iceberg.Schema `json:"schemas"`
+		Schemas   []*iceberg.Schema `json:"schemas"`
+		Snapshots []Snapshot        `json:"snapshots"`
 	}
 
 	var temp jsonFormat
 	if err := json.Unmarshal(b, &temp); err != nil {
 		return err
 	}
-
-	m.SchemaList = make(map[int]*iceberg.Schema, len(temp.Schemas))
+	aux.SchemaList = make(map[int]*iceberg.Schema, len(temp.Schemas))
 	for i := range temp.Schemas {
-		m.SchemaList[temp.Schemas[i].ID] = temp.Schemas[i]
+		aux.SchemaList[temp.Schemas[i].ID] = temp.Schemas[i]
+	}
+	aux.SnapshotList = make(map[int64]Snapshot, len(temp.Snapshots))
+	for i := range temp.Snapshots {
+		aux.SnapshotList[temp.Snapshots[i].SnapshotID] = temp.Snapshots[i]
+	}
+
+	if err := m.checkLastSequenceNumber(); err != nil {
+		return err
 	}
 
 	return m.validate()
