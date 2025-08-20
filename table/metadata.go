@@ -81,7 +81,7 @@ type Metadata interface {
 	LastColumnID() int
 	// Schemas returns the list of schemas, stored as objects with their
 	// schema-id.
-	Schemas() []*iceberg.Schema
+	Schemas() map[int]*iceberg.Schema
 	// CurrentSchema returns the table's current schema.
 	CurrentSchema() *iceberg.Schema
 	// PartitionSpecs returns the list of all partition specs in the table.
@@ -148,7 +148,7 @@ type MetadataBuilder struct {
 	loc                string
 	lastUpdatedMS      int64
 	lastColumnId       int
-	schemaList         []*iceberg.Schema
+	schemaList         map[int]*iceberg.Schema
 	currentSchemaID    int
 	specs              []iceberg.PartitionSpec
 	defaultSpecID      int
@@ -249,7 +249,7 @@ func NewMetadataBuilderFromPieces(schema *iceberg.Schema, spec iceberg.Partition
 		loc:                location,
 		lastUpdatedMS:      0,
 		lastColumnId:       0,
-		schemaList:         []*iceberg.Schema{},
+		schemaList:         make(map[int]*iceberg.Schema),
 		currentSchemaID:    -1,
 		specs:              []iceberg.PartitionSpec{},
 		defaultSpecID:      -1,
@@ -297,7 +297,7 @@ func NewMetadataBuilderFromPieces(schema *iceberg.Schema, spec iceberg.Partition
 func NewMetadataBuilder() (*MetadataBuilder, error) {
 	return &MetadataBuilder{
 		updates:       make([]Update, 0),
-		schemaList:    make([]*iceberg.Schema, 0),
+		schemaList:    make(map[int]*iceberg.Schema),
 		specs:         make([]iceberg.PartitionSpec, 0),
 		props:         make(iceberg.Properties),
 		snapshotList:  make([]Snapshot, 0),
@@ -321,7 +321,7 @@ func MetadataBuilderFromBase(metadata Metadata, currentFileLocation *string) (*M
 	b.loc = metadata.Location()
 	b.lastUpdatedMS = 0
 	b.lastColumnId = metadata.LastColumnID()
-	b.schemaList = slices.Clone(metadata.Schemas())
+	b.schemaList = maps.Clone(metadata.Schemas())
 	b.currentSchemaID = metadata.CurrentSchema().ID
 	b.specs = slices.Clone(metadata.PartitionSpecs())
 	defaultSpecID := metadata.DefaultPartitionSpec()
@@ -416,7 +416,7 @@ func (b *MetadataBuilder) AddSchema(schema *iceberg.Schema) (*MetadataBuilder, e
 
 	schema.ID = newSchemaID
 
-	b.schemaList = append(b.schemaList, schema)
+	b.schemaList[schema.ID] = schema
 	b.updates = append(b.updates, NewAddSchemaUpdate(schema))
 	b.lastAddedSchemaID = &newSchemaID
 
@@ -1117,22 +1117,17 @@ func (b *MetadataBuilder) RemoveSchemas(ints []int) (*MetadataBuilder, error) {
 		return nil, fmt.Errorf("can't remove current schema with id %d", b.currentSchemaID)
 	}
 
-	newSchemas := make([]*iceberg.Schema, 0, len(b.schemaList)-len(ints))
 	removed := make([]int, len(ints))
-	for _, schema := range b.schemaList {
-		if slices.Contains(ints, schema.ID) {
-			removed = append(removed, schema.ID)
-
-			continue
+	for _, id := range ints {
+		if _, ok := b.schemaList[id]; ok {
+			removed = append(removed, id)
+			delete(b.schemaList, id)
 		}
-		newSchemas = append(newSchemas, schema)
 	}
 
 	if len(removed) != 0 {
 		b.updates = append(b.updates, NewRemoveSchemasUpdate(ints))
 	}
-
-	b.schemaList = newSchemas
 
 	return b, nil
 }
@@ -1205,7 +1200,7 @@ type commonMetadata struct {
 	Loc                string                  `json:"location"`
 	LastUpdatedMS      int64                   `json:"last-updated-ms"`
 	LastColumnId       int                     `json:"last-column-id"`
-	SchemaList         []*iceberg.Schema       `json:"schemas"`
+	SchemaList         map[int]*iceberg.Schema `json:"-"`
 	CurrentSchemaID    int                     `json:"current-schema-id"`
 	Specs              []iceberg.PartitionSpec `json:"partition-specs"`
 	DefaultSpecID      int                     `json:"default-spec-id"`
@@ -1274,7 +1269,9 @@ func (c *commonMetadata) Equals(other *commonMetadata) bool {
 	}
 
 	switch {
-	case !sliceEqualHelper(c.SchemaList, other.SchemaList) && !((len(c.SchemaList) == 0 && other.SchemaList == nil) || (len(other.SchemaList) == 0 && c.SchemaList == nil)):
+	case !maps.EqualFunc(c.SchemaList, other.SchemaList, func(s1, s2 *iceberg.Schema) bool {
+		return s1.Equals(s2)
+	}) && !((len(c.SchemaList) == 0 && other.SchemaList == nil) || (len(other.SchemaList) == 0 && c.SchemaList == nil)):
 		fallthrough
 	case !sliceEqualHelper(c.SnapshotList, other.SnapshotList) && !((len(c.SnapshotList) == 0 && other.SnapshotList == nil) || (len(other.SnapshotList) == 0 && c.SnapshotList == nil)):
 		fallthrough
@@ -1296,11 +1293,11 @@ func (c *commonMetadata) Equals(other *commonMetadata) bool {
 		sliceEqualHelper(c.SortOrderList, other.SortOrderList)
 }
 
-func (c *commonMetadata) TableUUID() uuid.UUID       { return c.UUID }
-func (c *commonMetadata) Location() string           { return c.Loc }
-func (c *commonMetadata) LastUpdatedMillis() int64   { return c.LastUpdatedMS }
-func (c *commonMetadata) LastColumnID() int          { return c.LastColumnId }
-func (c *commonMetadata) Schemas() []*iceberg.Schema { return c.SchemaList }
+func (c *commonMetadata) TableUUID() uuid.UUID             { return c.UUID }
+func (c *commonMetadata) Location() string                 { return c.Loc }
+func (c *commonMetadata) LastUpdatedMillis() int64         { return c.LastUpdatedMS }
+func (c *commonMetadata) LastColumnID() int                { return c.LastColumnId }
+func (c *commonMetadata) Schemas() map[int]*iceberg.Schema { return c.SchemaList }
 func (c *commonMetadata) CurrentSchema() *iceberg.Schema {
 	for _, s := range c.SchemaList {
 		if s.ID == c.CurrentSchemaID {
@@ -1587,7 +1584,7 @@ func (m *metadataV1) Equals(other Metadata) bool {
 
 func (m *metadataV1) preValidate() {
 	if len(m.SchemaList) == 0 && m.Schema != nil {
-		m.SchemaList = []*iceberg.Schema{m.Schema}
+		m.SchemaList = map[int]*iceberg.Schema{m.Schema.ID: m.Schema}
 	}
 
 	if len(m.Specs) == 0 {
@@ -1630,19 +1627,55 @@ func (m *metadataV1) UnmarshalJSON(b []byte) error {
 		return err
 	}
 
-	// CurrentSchemaID was optional in v1, it can also be expressed via Schema. ß
+	type jsonFormat struct {
+		Schemas []*iceberg.Schema `json:"schemas"`
+		// Other fields...
+	}
+	var temp jsonFormat
+	if err := json.Unmarshal(b, &temp); err != nil {
+		return err
+	}
+	aux.SchemaList = make(map[int]*iceberg.Schema, len(temp.Schemas))
+	for i := range temp.Schemas {
+		aux.SchemaList[temp.Schemas[i].ID] = temp.Schemas[i]
+	}
+
+	// CurrentSchemaID was optional in v1, it can also be expressed via Schema.
 	if aux.CurrentSchemaID == -1 && aux.Schema != nil {
-		aux.CurrentSchemaID = aux.Schema.ID
-		if !slices.ContainsFunc(aux.SchemaList, func(s *iceberg.Schema) bool {
-			return s.Equals(aux.Schema) && s.ID == aux.CurrentSchemaID
-		}) {
-			aux.SchemaList = append(aux.SchemaList, aux.Schema)
+		if aux.SchemaList == nil {
+			aux.SchemaList = map[int]*iceberg.Schema{aux.Schema.ID: aux.Schema}
+		} else if _, ok := aux.SchemaList[aux.Schema.ID]; !ok {
+			aux.SchemaList[aux.Schema.ID] = aux.Schema
+		} else if found, ok := aux.SchemaList[aux.Schema.ID]; ok && !found.Equals(aux.Schema) {
+			return fmt.Errorf("%w: no valid schema configuration found in table metadata, `schema` field conflicts with `schemas` entry", ErrInvalidMetadata)
 		}
+		aux.CurrentSchemaID = aux.Schema.ID
 	}
 
 	m.preValidate()
 
 	return m.validate()
+}
+
+func (m metadataV1) MarshalJSON() ([]byte, error) {
+	// Convert map back to slice for JSON output
+	schemas := make([]*iceberg.Schema, 0, len(m.SchemaList))
+	for _, schema := range m.SchemaList {
+		schemas = append(schemas, schema)
+	}
+	type metadataV1JSON metadataV1
+
+	// Temporary struct for marshaling
+	temp := struct {
+		metadataV1JSON
+		Schemas []*iceberg.Schema `json:"schemas"`
+		// Other fields...
+	}{
+		metadataV1JSON: (metadataV1JSON)(m),
+		Schemas:        schemas,
+	}
+
+	return json.Marshal(temp)
 }
 
 func (m *metadataV1) ToV2() metadataV2 {
@@ -1688,6 +1721,26 @@ func (m *metadataV2) Equals(other Metadata) bool {
 		m.commonMetadata.Equals(&rhs.commonMetadata)
 }
 
+func (m metadataV2) MarshalJSON() ([]byte, error) {
+	schemas := make([]*iceberg.Schema, 0, len(m.SchemaList))
+	for _, schema := range m.SchemaList {
+		schemas = append(schemas, schema)
+	}
+	type metadataV2JSON metadataV2
+
+	// Temporary struct for marshaling
+	temp := struct {
+		metadataV2JSON
+		Schemas []*iceberg.Schema `json:"schemas"`
+		// Other fields...
+	}{
+		metadataV2JSON: (metadataV2JSON)(m),
+		Schemas:        schemas,
+	}
+
+	return json.Marshal(temp)
+}
+
 func (m *metadataV2) UnmarshalJSON(b []byte) error {
 	type Alias metadataV2
 	aux := (*Alias)(m)
@@ -1702,6 +1755,20 @@ func (m *metadataV2) UnmarshalJSON(b []byte) error {
 	m.preValidate()
 	if err := m.checkLastSequenceNumber(); err != nil {
 		return err
+	}
+
+	type jsonFormat struct {
+		Schemas []*iceberg.Schema `json:"schemas"`
+	}
+
+	var temp jsonFormat
+	if err := json.Unmarshal(b, &temp); err != nil {
+		return err
+	}
+
+	m.SchemaList = make(map[int]*iceberg.Schema, len(temp.Schemas))
+	for i := range temp.Schemas {
+		m.SchemaList[temp.Schemas[i].ID] = temp.Schemas[i]
 	}
 
 	return m.validate()
@@ -1767,7 +1834,7 @@ func NewMetadataWithUUID(sc *iceberg.Schema, partitions *iceberg.PartitionSpec, 
 		FormatVersion:      formatVersion,
 		UUID:               tableUuid,
 		Loc:                location,
-		SchemaList:         []*iceberg.Schema{freshSchema},
+		SchemaList:         map[int]*iceberg.Schema{freshSchema.ID: freshSchema},
 		CurrentSchemaID:    freshSchema.ID,
 		Specs:              []iceberg.PartitionSpec{freshPartitions},
 		DefaultSpecID:      freshPartitions.ID(),

@@ -20,6 +20,7 @@ package table
 import (
 	"encoding/json"
 	"fmt"
+	"maps"
 	"os"
 	"path"
 	"slices"
@@ -138,7 +139,7 @@ func TestMetadataV1Parsing(t *testing.T) {
 		iceberg.NestedField{ID: 3, Name: "z", Type: iceberg.PrimitiveTypes.Int64, Required: true},
 	)
 
-	assert.True(t, slices.EqualFunc([]*iceberg.Schema{expected}, meta.Schemas(), func(s1, s2 *iceberg.Schema) bool {
+	assert.True(t, maps.EqualFunc(map[int]*iceberg.Schema{expected.ID: expected}, meta.Schemas(), func(s1, s2 *iceberg.Schema) bool {
 		return s1.Equals(s2)
 	}))
 	assert.Zero(t, data.SchemaList[0].ID)
@@ -591,7 +592,7 @@ func TestNewMetadataWithExplicitV1Format(t *testing.T) {
 			UUID:               actual.TableUUID(),
 			LastUpdatedMS:      actual.LastUpdatedMillis(),
 			LastColumnId:       3,
-			SchemaList:         []*iceberg.Schema{expectedSchema},
+			SchemaList:         map[int]*iceberg.Schema{expectedSchema.ID: expectedSchema},
 			CurrentSchemaID:    0,
 			Specs:              []iceberg.PartitionSpec{expectedSpec},
 			DefaultSpecID:      0,
@@ -655,7 +656,7 @@ func TestNewMetadataV2Format(t *testing.T) {
 			UUID:               tableUUID,
 			LastUpdatedMS:      actual.LastUpdatedMillis(),
 			LastColumnId:       3,
-			SchemaList:         []*iceberg.Schema{expectedSchema},
+			SchemaList:         map[int]*iceberg.Schema{expectedSchema.ID: expectedSchema},
 			CurrentSchemaID:    0,
 			Specs:              []iceberg.PartitionSpec{expectedSpec},
 			DefaultSpecID:      0,
@@ -679,7 +680,7 @@ func TestMetadataV1Serialize(t *testing.T) {
 			Loc:                "s3a://warehouse/iceberg/iceberg-test-2.db/test-table-2",
 			LastUpdatedMS:      1742412491193,
 			LastColumnId:       1,
-			SchemaList:         []*iceberg.Schema{sc},
+			SchemaList:         map[int]*iceberg.Schema{sc.ID: sc},
 			CurrentSchemaID:    0,
 			Specs:              []iceberg.PartitionSpec{*iceberg.UnpartitionedSpec},
 			DefaultSpecID:      0,
@@ -723,7 +724,7 @@ func TestMetadataV2Serialize(t *testing.T) {
 			Loc:                "s3a://warehouse/iceberg/iceberg-test-2.db/test-table-2",
 			LastUpdatedMS:      1742412491193,
 			LastColumnId:       1,
-			SchemaList:         []*iceberg.Schema{sc},
+			SchemaList:         map[int]*iceberg.Schema{sc.ID: sc},
 			CurrentSchemaID:    0,
 			Specs:              []iceberg.PartitionSpec{*iceberg.UnpartitionedSpec},
 			DefaultSpecID:      0,
@@ -820,9 +821,9 @@ func TestMetadataBuilderSchemaIncreasingNumbering(t *testing.T) {
 	_, err = builder.AddSchema(schema)
 	assert.NoError(t, err)
 
-	assert.Equal(t, 1, builder.schemaList[0].ID)
-	assert.Equal(t, 3, builder.schemaList[1].ID)
-	assert.Equal(t, 4, builder.schemaList[2].ID)
+	assert.Equal(t, 1, builder.schemaList[1].ID)
+	assert.Equal(t, 3, builder.schemaList[3].ID)
+	assert.Equal(t, 4, builder.schemaList[4].ID)
 }
 
 func TestMetadataBuilderReuseSchema(t *testing.T) {
@@ -1024,7 +1025,7 @@ func TestTableDataV2NoSnapshots(t *testing.T) {
 			Loc:               "s3://b/wh/data.db/table",
 			LastUpdatedMS:     1515100955770,
 			LastColumnId:      1,
-			SchemaList:        []*iceberg.Schema{schema},
+			SchemaList:        map[int]*iceberg.Schema{schema.ID: schema},
 			CurrentSchemaID:   1,
 			Specs:             []iceberg.PartitionSpec{partitionSpec},
 			DefaultSpecID:     0,
@@ -1585,7 +1586,7 @@ func TestTableMetadataV2FileValid(t *testing.T) {
 		Name:     "x",
 		Required: true,
 	})
-	schema2 := iceberg.NewSchemaWithIdentifiers(0, []int{1, 2}, iceberg.NestedField{
+	schema2 := iceberg.NewSchemaWithIdentifiers(1, []int{1, 2}, iceberg.NestedField{
 		Type:     iceberg.Int64Type{},
 		ID:       1,
 		Name:     "x",
@@ -1662,7 +1663,7 @@ func TestTableMetadataV2FileValid(t *testing.T) {
 			Loc:             "s3://bucket/test/location",
 			LastUpdatedMS:   1602638573590,
 			LastColumnId:    3,
-			SchemaList:      []*iceberg.Schema{schema1, schema2},
+			SchemaList:      map[int]*iceberg.Schema{schema1.ID: schema1, schema2.ID: schema2},
 			CurrentSchemaID: 1,
 			Specs:           []iceberg.PartitionSpec{spec},
 			DefaultSpecID:   0,
@@ -1760,7 +1761,7 @@ func TestTableMetadataV2FileValidMinimal(t *testing.T) {
 			Loc:               "s3://bucket/test/location",
 			LastUpdatedMS:     1602638573590,
 			LastColumnId:      3,
-			SchemaList:        []*iceberg.Schema{schema},
+			SchemaList:        map[int]*iceberg.Schema{schema.ID: schema},
 			CurrentSchemaID:   0,
 			Specs:             []iceberg.PartitionSpec{spec},
 			DefaultSpecID:     0,
@@ -1819,7 +1820,7 @@ func TestTableMetadataV1FileValid(t *testing.T) {
 			Loc:               "s3://bucket/test/location",
 			LastUpdatedMS:     1602638573874,
 			LastColumnId:      3,
-			SchemaList:        []*iceberg.Schema{schema},
+			SchemaList:        map[int]*iceberg.Schema{schema.ID: schema},
 			CurrentSchemaID:   0,
 			Specs:             []iceberg.PartitionSpec{spec},
 			DefaultSpecID:     0,
