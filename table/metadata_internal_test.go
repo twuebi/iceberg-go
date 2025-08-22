@@ -378,7 +378,7 @@ func TestSortOrderNotFound(t *testing.T) {
 	_, err := ParseMetadataBytes([]byte(metadataSortOrderNotFound))
 	assert.Error(t, err)
 	assert.ErrorIs(t, err, ErrInvalidMetadata)
-	assert.ErrorContains(t, err, "default-sort-order-id 4 can't be found in [3: [\n2 asc nulls-first\nbucket[4](3) desc nulls-last\n]]")
+	assert.ErrorContains(t, err, "default-sort-order-id 4 can't be found in map[3:3: [\n2 asc nulls-first\nbucket[4](3) desc nulls-last\n]]")
 }
 
 func TestSortOrderUnsorted(t *testing.T) {
