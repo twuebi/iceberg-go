@@ -118,7 +118,7 @@ type Metadata interface {
 	// ID that matches the default-sort-order-id.
 	SortOrder() SortOrder
 	// SortOrders returns the list of sort orders in the table.
-	SortOrders() []SortOrder
+	SortOrders() map[int]SortOrder
 	// DefaultSortOrder returns the ID of the current sort order that writers
 	// should use by default.
 	DefaultSortOrder() int
@@ -158,7 +158,7 @@ type MetadataBuilder struct {
 	currentSnapshotID  *int64
 	snapshotLog        []SnapshotLogEntry
 	metadataLog        []MetadataLogEntry
-	sortOrderList      []SortOrder
+	sortOrderList      map[int]SortOrder
 	defaultSortOrderID int
 	refs               map[string]SnapshotRef
 
@@ -259,7 +259,7 @@ func NewMetadataBuilderFromPieces(schema *iceberg.Schema, spec iceberg.Partition
 		currentSnapshotID:  nil,
 		snapshotLog:        []SnapshotLogEntry{},
 		metadataLog:        []MetadataLogEntry{},
-		sortOrderList:      []SortOrder{},
+		sortOrderList:      make(map[int]SortOrder),
 		defaultSortOrderID: -1,
 		refs:               make(map[string]SnapshotRef),
 		lastSequenceNumber: nil,
@@ -303,7 +303,7 @@ func NewMetadataBuilder() (*MetadataBuilder, error) {
 		snapshotList:  make(map[int64]Snapshot),
 		snapshotLog:   make([]SnapshotLogEntry, 0),
 		metadataLog:   make([]MetadataLogEntry, 0),
-		sortOrderList: make([]SortOrder, 0),
+		sortOrderList: make(map[int]SortOrder),
 		refs:          make(map[string]SnapshotRef),
 	}, nil
 }
@@ -329,7 +329,7 @@ func MetadataBuilderFromBase(metadata Metadata, currentFileLocation *string) (*M
 	b.lastPartitionID = metadata.LastPartitionSpecID()
 	b.props = maps.Clone(metadata.Properties())
 	b.snapshotList = maps.Clone(metadata.Snapshots())
-	b.sortOrderList = slices.Clone(metadata.SortOrders())
+	b.sortOrderList = maps.Clone(metadata.SortOrders())
 	b.defaultSortOrderID = metadata.DefaultSortOrder()
 	if metadata.Version() > 1 {
 		seq := metadata.LastSequenceNumber()
@@ -545,13 +545,12 @@ func (b *MetadataBuilder) AddSortOrder(sortOrder *SortOrder) (*MetadataBuilder, 
 		return nil, fmt.Errorf("sort order %s is not compatible with current schema: %w", sortOrder, err)
 	}
 
-	for _, s := range sortOrders {
-		if s.OrderID == sortOrder.OrderID {
-			return nil, fmt.Errorf("sort order with id %d already exists", sortOrder.OrderID)
-		}
+	if _, ok := sortOrders[sortOrder.OrderID]; ok {
+		return nil, fmt.Errorf("sort order with id %d already exists", sortOrder.OrderID)
 	}
 
-	b.sortOrderList = append(sortOrders, *sortOrder)
+	b.lastAddedSortOrderID = &newOrderID
+	b.sortOrderList[sortOrder.OrderID] = *sortOrder
 	b.updates = append(b.updates, NewAddSortOrderUpdate(sortOrder))
 
 	return b, nil
@@ -600,12 +599,9 @@ func (b *MetadataBuilder) SetCurrentSchemaID(currentSchemaID int) (*MetadataBuil
 
 func (b *MetadataBuilder) SetDefaultSortOrderID(defaultSortOrderID int) (*MetadataBuilder, error) {
 	if defaultSortOrderID == -1 {
-		defaultSortOrderID = maxBy(b.sortOrderList, func(s SortOrder) int {
-			return s.OrderID
-		})
-		if !slices.ContainsFunc(b.updates, func(u Update) bool {
-			return u.Action() == UpdateAddSortOrder && u.(*addSortOrderUpdate).SortOrder.OrderID == defaultSortOrderID
-		}) {
+		if b.lastAddedSortOrderID != nil {
+			defaultSortOrderID = *b.lastAddedSortOrderID
+		} else {
 			return nil, errors.New("can't set default sort order to last added with no added sort orders")
 		}
 	}
@@ -618,7 +614,12 @@ func (b *MetadataBuilder) SetDefaultSortOrderID(defaultSortOrderID int) (*Metada
 		return nil, fmt.Errorf("can't set default sort order to sort order with id %d: %w", defaultSortOrderID, err)
 	}
 
-	b.updates = append(b.updates, NewSetDefaultSortOrderUpdate(defaultSortOrderID))
+	if b.lastAddedSortOrderID == &defaultSortOrderID {
+		b.updates = append(b.updates, NewSetDefaultSortOrderUpdate(-1))
+	} else {
+		b.updates = append(b.updates, NewSetDefaultSortOrderUpdate(defaultSortOrderID))
+	}
+
 	b.defaultSortOrderID = defaultSortOrderID
 
 	return b, nil
@@ -945,21 +946,18 @@ func (b *MetadataBuilder) GetSpecByID(id int) (*iceberg.PartitionSpec, error) {
 }
 
 func (b *MetadataBuilder) GetSortOrderByID(id int) (*SortOrder, error) {
-	for _, s := range b.sortOrderList {
-		if s.OrderID == id {
-			return &s, nil
-		}
+	if s, ok := b.sortOrderList[id]; ok {
+		return &s, nil
 	}
 
 	return nil, fmt.Errorf("sort order with id %d not found", id)
 }
 
 func (b *MetadataBuilder) SnapshotByID(id int64) (*Snapshot, error) {
-	snap, ok := b.snapshotList[id]
-	if !ok {
-		return nil, fmt.Errorf("snapshot with id %d not found", id)
+	if snap, ok := b.snapshotList[id]; ok {
+		return &snap, nil
 	}
-	return &snap, nil
+	return nil, fmt.Errorf("snapshot with id %d not found", id)
 }
 
 func (b *MetadataBuilder) NameMapping() iceberg.NameMapping {
@@ -1212,7 +1210,7 @@ type commonMetadata struct {
 	CurrentSnapshotID  *int64                  `json:"current-snapshot-id,omitempty"`
 	SnapshotLog        []SnapshotLogEntry      `json:"snapshot-log,omitempty"`
 	MetadataLog        []MetadataLogEntry      `json:"metadata-log,omitempty"`
-	SortOrderList      []SortOrder             `json:"sort-orders"`
+	SortOrderList      map[int]SortOrder       `json:"-"`
 	DefaultSortOrderID int                     `json:"default-sort-order-id"`
 	SnapshotRefs       map[string]SnapshotRef  `json:"refs,omitempty"`
 }
@@ -1271,9 +1269,9 @@ func (c *commonMetadata) Equals(other *commonMetadata) bool {
 	}
 
 	switch {
-	case !maps.EqualFunc(c.SchemaList, other.SchemaList, func(s1, s2 *iceberg.Schema) bool {
+	case !((len(c.SchemaList) == 0 && other.SchemaList == nil) || (len(other.SchemaList) == 0 && c.SchemaList == nil)) && !maps.EqualFunc(c.SchemaList, other.SchemaList, func(s1, s2 *iceberg.Schema) bool {
 		return s1.Equals(s2)
-	}) && !((len(c.SchemaList) == 0 && other.SchemaList == nil) || (len(other.SchemaList) == 0 && c.SchemaList == nil)):
+	}):
 		fallthrough
 	case !maps.EqualFunc(c.SnapshotList, other.SnapshotList, func(s1, s2 Snapshot) bool {
 		return s1.Equals(s2)
@@ -1282,6 +1280,10 @@ func (c *commonMetadata) Equals(other *commonMetadata) bool {
 	case !sliceEqualHelper(c.Specs, other.Specs) && !((len(c.Specs) == 0 && other.Specs == nil) || (len(other.Specs) == 0 && c.Specs == nil)):
 		fallthrough
 	case !maps.Equal(c.Props, other.Props) && !((len(c.Props) == 0 && other.Props == nil) || (len(other.Props) == 0 && c.Props == nil)):
+		fallthrough
+	case !maps.EqualFunc(c.SortOrderList, other.SortOrderList, func(s1, s2 SortOrder) bool {
+		return s1.Equals(s2)
+	}):
 		fallthrough
 	case !maps.EqualFunc(c.SnapshotRefs, other.SnapshotRefs, func(sr1, sr2 SnapshotRef) bool { return sr1.Equals(sr2) }):
 		return false
@@ -1293,8 +1295,7 @@ func (c *commonMetadata) Equals(other *commonMetadata) bool {
 		c.Loc == other.Loc && c.LastUpdatedMS == other.LastUpdatedMS &&
 		c.LastColumnId == other.LastColumnId && c.CurrentSchemaID == other.CurrentSchemaID &&
 		c.DefaultSpecID == other.DefaultSpecID && c.DefaultSortOrderID == other.DefaultSortOrderID &&
-		slices.Equal(c.SnapshotLog, other.SnapshotLog) && slices.Equal(c.MetadataLog, other.MetadataLog) &&
-		sliceEqualHelper(c.SortOrderList, other.SortOrderList)
+		slices.Equal(c.SnapshotLog, other.SnapshotLog) && slices.Equal(c.MetadataLog, other.MetadataLog)
 }
 
 func (c *commonMetadata) TableUUID() uuid.UUID             { return c.UUID }
@@ -1358,7 +1359,7 @@ func (c *commonMetadata) CurrentSnapshot() *Snapshot {
 	return c.SnapshotByID(*c.CurrentSnapshotID)
 }
 
-func (c *commonMetadata) SortOrders() []SortOrder { return c.SortOrderList }
+func (c *commonMetadata) SortOrders() map[int]SortOrder { return c.SortOrderList }
 func (c *commonMetadata) SortOrder() SortOrder {
 	for _, s := range c.SortOrderList {
 		if s.OrderID == c.DefaultSortOrderID {
@@ -1615,7 +1616,7 @@ func (m *metadataV1) preValidate() {
 	}
 
 	if len(m.SortOrderList) == 0 {
-		m.SortOrderList = []SortOrder{UnsortedSortOrder}
+		m.SortOrderList = map[int]SortOrder{UnsortedSortOrderID: UnsortedSortOrder}
 	}
 
 	m.commonMetadata.preValidate()
@@ -1635,18 +1636,23 @@ func (m *metadataV1) UnmarshalJSON(b []byte) error {
 	type jsonFormat struct {
 		Schemas   []*iceberg.Schema `json:"schemas"`
 		Snapshots []Snapshot        `json:"snapshots,omitempty"`
+		SortOrder []SortOrder       `json:"sort-orders,omitempty"`
 	}
 	var temp jsonFormat
 	if err := json.Unmarshal(b, &temp); err != nil {
 		return err
 	}
 	aux.SchemaList = make(map[int]*iceberg.Schema, len(temp.Schemas))
-	for i := range temp.Schemas {
-		aux.SchemaList[temp.Schemas[i].ID] = temp.Schemas[i]
+	for _, s := range temp.Schemas {
+		aux.SchemaList[s.ID] = s
 	}
 	aux.SnapshotList = make(map[int64]Snapshot, len(temp.Snapshots))
-	for i := range temp.Snapshots {
-		aux.SnapshotList[temp.Snapshots[i].SnapshotID] = temp.Snapshots[i]
+	for _, s := range temp.Snapshots {
+		aux.SnapshotList[s.SnapshotID] = s
+	}
+	aux.SortOrderList = make(map[int]SortOrder, len(temp.SortOrder))
+	for _, s := range temp.SortOrder {
+		aux.SortOrderList[s.OrderID] = s
 	}
 
 	// CurrentSchemaID was optional in v1, it can also be expressed via Schema.
@@ -1676,18 +1682,23 @@ func (m metadataV1) MarshalJSON() ([]byte, error) {
 	for _, snapshot := range m.SnapshotList {
 		snapshots = append(snapshots, snapshot)
 	}
-
+	sortOrders := make([]SortOrder, 0, len(m.SortOrderList))
+	for _, sortOrder := range m.SortOrderList {
+		sortOrders = append(sortOrders, sortOrder)
+	}
 	type metadataV1JSON metadataV1
 
 	// Temporary struct for marshaling
 	temp := struct {
 		metadataV1JSON
-		Schemas   []*iceberg.Schema `json:"schemas"`
-		Snapshots []Snapshot        `json:"snapshots,omitempty"`
+		Schemas    []*iceberg.Schema `json:"schemas"`
+		Snapshots  []Snapshot        `json:"snapshots,omitempty"`
+		SortOrders []SortOrder       `json:"sort-orders,omitempty"`
 	}{
 		metadataV1JSON: (metadataV1JSON)(m),
 		Schemas:        schemas,
 		Snapshots:      snapshots,
+		SortOrders:     sortOrders,
 	}
 
 	return json.Marshal(temp)
@@ -1746,17 +1757,24 @@ func (m metadataV2) MarshalJSON() ([]byte, error) {
 	for _, snapshot := range m.SnapshotList {
 		snapshots = append(snapshots, snapshot)
 	}
+
+	sortOrders := make([]SortOrder, 0, len(m.SortOrderList))
+	for _, sortOrder := range m.SortOrderList {
+		sortOrders = append(sortOrders, sortOrder)
+	}
 	type metadataV2JSON metadataV2
 
 	// Temporary struct for marshaling
 	temp := struct {
 		metadataV2JSON
-		Schemas   []*iceberg.Schema `json:"schemas"`
-		Snapshots []Snapshot        `json:"snapshots,omitempty"`
+		Schemas    []*iceberg.Schema `json:"schemas"`
+		Snapshots  []Snapshot        `json:"snapshots,omitempty"`
+		SortOrders []SortOrder       `json:"sort-orders,omitempty"`
 	}{
 		metadataV2JSON: (metadataV2JSON)(m),
 		Schemas:        schemas,
 		Snapshots:      snapshots,
+		SortOrders:     sortOrders,
 	}
 
 	return json.Marshal(temp)
@@ -1778,6 +1796,7 @@ func (m *metadataV2) UnmarshalJSON(b []byte) error {
 	type jsonFormat struct {
 		Schemas   []*iceberg.Schema `json:"schemas"`
 		Snapshots []Snapshot        `json:"snapshots"`
+		SortOrder []SortOrder       `json:"sort-orders,omitempty"`
 	}
 
 	var temp jsonFormat
@@ -1785,14 +1804,17 @@ func (m *metadataV2) UnmarshalJSON(b []byte) error {
 		return err
 	}
 	aux.SchemaList = make(map[int]*iceberg.Schema, len(temp.Schemas))
-	for i := range temp.Schemas {
-		aux.SchemaList[temp.Schemas[i].ID] = temp.Schemas[i]
+	for _, s := range temp.Schemas {
+		aux.SchemaList[s.ID] = s
 	}
 	aux.SnapshotList = make(map[int64]Snapshot, len(temp.Snapshots))
-	for i := range temp.Snapshots {
-		aux.SnapshotList[temp.Snapshots[i].SnapshotID] = temp.Snapshots[i]
+	for _, s := range temp.Snapshots {
+		aux.SnapshotList[s.SnapshotID] = s
 	}
-
+	aux.SortOrderList = make(map[int]SortOrder, len(temp.SortOrder))
+	for _, s := range temp.SortOrder {
+		aux.SortOrderList[s.OrderID] = s
+	}
 	if err := m.checkLastSequenceNumber(); err != nil {
 		return err
 	}
@@ -1866,7 +1888,7 @@ func NewMetadataWithUUID(sc *iceberg.Schema, partitions *iceberg.PartitionSpec, 
 		DefaultSpecID:      freshPartitions.ID(),
 		LastPartitionID:    &lastPartitionID,
 		Props:              props,
-		SortOrderList:      []SortOrder{freshSortOrder},
+		SortOrderList:      map[int]SortOrder{freshSortOrder.OrderID: freshSortOrder},
 		DefaultSortOrderID: freshSortOrder.OrderID,
 	}
 

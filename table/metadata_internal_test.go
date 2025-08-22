@@ -189,7 +189,7 @@ func TestMetadataV2Parsing(t *testing.T) {
 	assert.EqualValues(t, 3055729675574597004, *data.CurrentSnapshotID)
 	assert.EqualValues(t, 3051729675574597004, data.SnapshotList[3051729675574597004].SnapshotID)
 	assert.Equal(t, int64(1515100955770), data.SnapshotLog[0].TimestampMs)
-	assert.Equal(t, 3, data.SortOrderList[0].OrderID)
+	assert.Equal(t, 3, data.SortOrderList[3].OrderID)
 	assert.Equal(t, 3, data.DefaultSortOrderID)
 
 	assert.Len(t, meta.Snapshots(), 2)
@@ -597,7 +597,7 @@ func TestNewMetadataWithExplicitV1Format(t *testing.T) {
 			Specs:              []iceberg.PartitionSpec{expectedSpec},
 			DefaultSpecID:      0,
 			LastPartitionID:    &lastPartitionID,
-			SortOrderList:      []SortOrder{expectedSortOrder},
+			SortOrderList:      map[int]SortOrder{expectedSortOrder.OrderID: expectedSortOrder},
 			DefaultSortOrderID: 1,
 			FormatVersion:      1,
 		},
@@ -661,7 +661,7 @@ func TestNewMetadataV2Format(t *testing.T) {
 			Specs:              []iceberg.PartitionSpec{expectedSpec},
 			DefaultSpecID:      0,
 			LastPartitionID:    &lastPartitionID,
-			SortOrderList:      []SortOrder{expectedSortOrder},
+			SortOrderList:      map[int]SortOrder{expectedSortOrder.OrderID: expectedSortOrder},
 			DefaultSortOrderID: 1,
 			FormatVersion:      2,
 		},
@@ -684,7 +684,7 @@ func TestMetadataV1Serialize(t *testing.T) {
 			CurrentSchemaID:    0,
 			Specs:              []iceberg.PartitionSpec{*iceberg.UnpartitionedSpec},
 			DefaultSpecID:      0,
-			SortOrderList:      []SortOrder{UnsortedSortOrder},
+			SortOrderList:      map[int]SortOrder{UnsortedSortOrderID: UnsortedSortOrder},
 			DefaultSortOrderID: 0,
 		},
 	}
@@ -728,7 +728,7 @@ func TestMetadataV2Serialize(t *testing.T) {
 			CurrentSchemaID:    0,
 			Specs:              []iceberg.PartitionSpec{*iceberg.UnpartitionedSpec},
 			DefaultSpecID:      0,
-			SortOrderList:      []SortOrder{UnsortedSortOrder},
+			SortOrderList:      map[int]SortOrder{UnsortedSortOrder.OrderID: UnsortedSortOrder},
 			DefaultSortOrderID: 0,
 		},
 	}
@@ -1040,8 +1040,7 @@ func TestTableDataV2NoSnapshots(t *testing.T) {
 					TimestampMs:  1515100,
 				},
 			},
-
-			SortOrderList:      []SortOrder{UnsortedSortOrder},
+			SortOrderList:      map[int]SortOrder{UnsortedSortOrder.OrderID: UnsortedSortOrder},
 			DefaultSortOrderID: 0,
 			SnapshotRefs:       nil,
 		},
@@ -1685,8 +1684,8 @@ func TestTableMetadataV2FileValid(t *testing.T) {
 				},
 			},
 			MetadataLog: []MetadataLogEntry{},
-			SortOrderList: []SortOrder{
-				sortOrder,
+			SortOrderList: map[int]SortOrder{
+				sortOrder.OrderID: sortOrder,
 			},
 			DefaultSortOrderID: 3,
 			SnapshotRefs: map[string]SnapshotRef{
@@ -1771,8 +1770,8 @@ func TestTableMetadataV2FileValidMinimal(t *testing.T) {
 			CurrentSnapshotID: nil,
 			SnapshotLog:       []SnapshotLogEntry{},
 			MetadataLog:       []MetadataLogEntry{},
-			SortOrderList: []SortOrder{
-				sortOrder,
+			SortOrderList: map[int]SortOrder{
+				sortOrder.OrderID: sortOrder,
 			},
 			DefaultSortOrderID: 3,
 			SnapshotRefs:       map[string]SnapshotRef{},
@@ -1830,8 +1829,8 @@ func TestTableMetadataV1FileValid(t *testing.T) {
 			CurrentSnapshotID: nil,
 			SnapshotLog:       []SnapshotLogEntry{},
 			MetadataLog:       []MetadataLogEntry{},
-			SortOrderList: []SortOrder{
-				UnsortedSortOrder,
+			SortOrderList: map[int]SortOrder{
+				UnsortedSortOrderID: UnsortedSortOrder,
 			},
 			DefaultSortOrderID: 0,
 			SnapshotRefs:       map[string]SnapshotRef{},
@@ -1953,7 +1952,8 @@ func TestDefaultSortOrder(t *testing.T) {
 	sortOrder := SortOrder{
 		OrderID: orderID,
 	}
-	meta.(*metadataV2).SortOrderList = append(meta.(*metadataV2).SortOrderList, sortOrder)
+
+	meta.(*metadataV2).SortOrderList[sortOrder.OrderID] = sortOrder
 	require.Equal(t, meta.SortOrder().OrderID, orderID)
 }
 

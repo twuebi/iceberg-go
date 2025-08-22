@@ -266,7 +266,9 @@ func TestReassignIds(t *testing.T) {
 
 	require.True(t, expectedSchema.Equals(meta.schemaList[0]), cmp.Diff(spew.Sdump(expectedSchema.Fields()), spew.Sdump(meta.schemaList[0].Fields())))
 	require.True(t, expectedSpec.Equals(meta.specs[0]))
-	require.True(t, expectedSortOrder.Equals(meta.sortOrderList[0]))
+	order, err := meta.GetSortOrderByID(expectedSortOrder.OrderID)
+	require.NoError(t, err)
+	require.True(t, expectedSortOrder.Equals(*order))
 }
 
 func TestAddRemovePartitionSpec(t *testing.T) {
