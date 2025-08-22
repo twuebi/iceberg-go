@@ -357,8 +357,8 @@ func MetadataBuilderFromBase(metadata Metadata, currentFileLocation *string) (*M
 
 func (b *MetadataBuilder) HasChanges() bool { return len(b.updates) > 0 }
 
-func (b *MetadataBuilder) CurrentSpec() iceberg.PartitionSpec {
-	return b.specs[b.defaultSpecID]
+func (b *MetadataBuilder) CurrentSpec() (*iceberg.PartitionSpec, error) {
+	return b.GetSpecByID(b.defaultSpecID)
 }
 
 func (b *MetadataBuilder) CurrentSchema() *iceberg.Schema {
@@ -831,6 +831,11 @@ func (b *MetadataBuilder) SetLastUpdatedMS() *MetadataBuilder {
 }
 
 func (b *MetadataBuilder) buildCommonMetadata() (*commonMetadata, error) {
+	if _, err := b.GetSpecByID(b.defaultSpecID); err != nil {
+		return nil, fmt.Errorf("defaultSpecID is invalid: %w", err)
+	}
+	defaultSpecID := b.defaultSpecID
+
 	if err := b.updateSnapshotLog(); err != nil {
 		return nil, err
 	}
@@ -858,7 +863,7 @@ func (b *MetadataBuilder) buildCommonMetadata() (*commonMetadata, error) {
 		SchemaList:         b.schemaList,
 		CurrentSchemaID:    b.currentSchemaID,
 		Specs:              b.specs,
-		DefaultSpecID:      b.defaultSpecID,
+		DefaultSpecID:      defaultSpecID,
 		LastPartitionID:    b.lastPartitionID,
 		Props:              b.props,
 		SnapshotList:       b.snapshotList,

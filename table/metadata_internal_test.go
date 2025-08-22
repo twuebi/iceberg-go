@@ -1957,7 +1957,7 @@ func TestDefaultSortOrder(t *testing.T) {
 }
 
 func getTestTableMetadata(fileName string) (Metadata, error) {
-	fCont, err := os.ReadFile(path.Join("../test_table_metadata", fileName))
+	fCont, err := os.ReadFile(path.Join("testdata", fileName))
 	if err != nil {
 		return nil, err
 	}
