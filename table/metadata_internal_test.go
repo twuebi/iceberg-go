@@ -20,6 +20,7 @@ package table
 import (
 	"encoding/json"
 	"fmt"
+	"maps"
 	"os"
 	"path"
 	"slices"
@@ -138,7 +139,7 @@ func TestMetadataV1Parsing(t *testing.T) {
 		iceberg.NestedField{ID: 3, Name: "z", Type: iceberg.PrimitiveTypes.Int64, Required: true},
 	)
 
-	assert.True(t, slices.EqualFunc([]*iceberg.Schema{expected}, meta.Schemas(), func(s1, s2 *iceberg.Schema) bool {
+	assert.True(t, maps.EqualFunc(map[int]*iceberg.Schema{expected.ID: expected}, meta.Schemas(), func(s1, s2 *iceberg.Schema) bool {
 		return s1.Equals(s2)
 	}))
 	assert.Zero(t, data.SchemaList[0].ID)
@@ -186,14 +187,14 @@ func TestMetadataV2Parsing(t *testing.T) {
 	assert.Equal(t, 1000, *data.LastPartitionID)
 	assert.EqualValues(t, "134217728", data.Props["read.split.target.size"])
 	assert.EqualValues(t, 3055729675574597004, *data.CurrentSnapshotID)
-	assert.EqualValues(t, 3051729675574597004, data.SnapshotList[0].SnapshotID)
+	assert.EqualValues(t, 3051729675574597004, data.SnapshotList[3051729675574597004].SnapshotID)
 	assert.Equal(t, int64(1515100955770), data.SnapshotLog[0].TimestampMs)
-	assert.Equal(t, 3, data.SortOrderList[0].OrderID)
+	assert.Equal(t, 3, data.SortOrderList[3].OrderID)
 	assert.Equal(t, 3, data.DefaultSortOrderID)
 
 	assert.Len(t, meta.Snapshots(), 2)
-	assert.Equal(t, data.SnapshotList[1], *meta.CurrentSnapshot())
-	assert.Equal(t, data.SnapshotList[0], *meta.SnapshotByName("test"))
+	assert.Equal(t, data.SnapshotList[3055729675574597004], *meta.CurrentSnapshot())
+	assert.Equal(t, data.SnapshotList[3051729675574597004], *meta.SnapshotByName("test"))
 	assert.EqualValues(t, "134217728", meta.Properties()["read.split.target.size"])
 }
 
@@ -377,7 +378,7 @@ func TestSortOrderNotFound(t *testing.T) {
 	_, err := ParseMetadataBytes([]byte(metadataSortOrderNotFound))
 	assert.Error(t, err)
 	assert.ErrorIs(t, err, ErrInvalidMetadata)
-	assert.ErrorContains(t, err, "default-sort-order-id 4 can't be found in [3: [\n2 asc nulls-first\nbucket[4](3) desc nulls-last\n]]")
+	assert.ErrorContains(t, err, "default-sort-order-id 4 can't be found in map[3:3: [\n2 asc nulls-first\nbucket[4](3) desc nulls-last\n]]")
 }
 
 func TestSortOrderUnsorted(t *testing.T) {
@@ -591,12 +592,12 @@ func TestNewMetadataWithExplicitV1Format(t *testing.T) {
 			UUID:               actual.TableUUID(),
 			LastUpdatedMS:      actual.LastUpdatedMillis(),
 			LastColumnId:       3,
-			SchemaList:         []*iceberg.Schema{expectedSchema},
+			SchemaList:         map[int]*iceberg.Schema{expectedSchema.ID: expectedSchema},
 			CurrentSchemaID:    0,
 			Specs:              []iceberg.PartitionSpec{expectedSpec},
 			DefaultSpecID:      0,
 			LastPartitionID:    &lastPartitionID,
-			SortOrderList:      []SortOrder{expectedSortOrder},
+			SortOrderList:      map[int]SortOrder{expectedSortOrder.OrderID: expectedSortOrder},
 			DefaultSortOrderID: 1,
 			FormatVersion:      1,
 		},
@@ -655,12 +656,12 @@ func TestNewMetadataV2Format(t *testing.T) {
 			UUID:               tableUUID,
 			LastUpdatedMS:      actual.LastUpdatedMillis(),
 			LastColumnId:       3,
-			SchemaList:         []*iceberg.Schema{expectedSchema},
+			SchemaList:         map[int]*iceberg.Schema{expectedSchema.ID: expectedSchema},
 			CurrentSchemaID:    0,
 			Specs:              []iceberg.PartitionSpec{expectedSpec},
 			DefaultSpecID:      0,
 			LastPartitionID:    &lastPartitionID,
-			SortOrderList:      []SortOrder{expectedSortOrder},
+			SortOrderList:      map[int]SortOrder{expectedSortOrder.OrderID: expectedSortOrder},
 			DefaultSortOrderID: 1,
 			FormatVersion:      2,
 		},
@@ -679,11 +680,11 @@ func TestMetadataV1Serialize(t *testing.T) {
 			Loc:                "s3a://warehouse/iceberg/iceberg-test-2.db/test-table-2",
 			LastUpdatedMS:      1742412491193,
 			LastColumnId:       1,
-			SchemaList:         []*iceberg.Schema{sc},
+			SchemaList:         map[int]*iceberg.Schema{sc.ID: sc},
 			CurrentSchemaID:    0,
 			Specs:              []iceberg.PartitionSpec{*iceberg.UnpartitionedSpec},
 			DefaultSpecID:      0,
-			SortOrderList:      []SortOrder{UnsortedSortOrder},
+			SortOrderList:      map[int]SortOrder{UnsortedSortOrderID: UnsortedSortOrder},
 			DefaultSortOrderID: 0,
 		},
 	}
@@ -723,11 +724,11 @@ func TestMetadataV2Serialize(t *testing.T) {
 			Loc:                "s3a://warehouse/iceberg/iceberg-test-2.db/test-table-2",
 			LastUpdatedMS:      1742412491193,
 			LastColumnId:       1,
-			SchemaList:         []*iceberg.Schema{sc},
+			SchemaList:         map[int]*iceberg.Schema{sc.ID: sc},
 			CurrentSchemaID:    0,
 			Specs:              []iceberg.PartitionSpec{*iceberg.UnpartitionedSpec},
 			DefaultSpecID:      0,
-			SortOrderList:      []SortOrder{UnsortedSortOrder},
+			SortOrderList:      map[int]SortOrder{UnsortedSortOrder.OrderID: UnsortedSortOrder},
 			DefaultSortOrderID: 0,
 		},
 	}
@@ -820,9 +821,9 @@ func TestMetadataBuilderSchemaIncreasingNumbering(t *testing.T) {
 	_, err = builder.AddSchema(schema)
 	assert.NoError(t, err)
 
-	assert.Equal(t, 1, builder.schemaList[0].ID)
-	assert.Equal(t, 3, builder.schemaList[1].ID)
-	assert.Equal(t, 4, builder.schemaList[2].ID)
+	assert.Equal(t, 1, builder.schemaList[1].ID)
+	assert.Equal(t, 3, builder.schemaList[3].ID)
+	assert.Equal(t, 4, builder.schemaList[4].ID)
 }
 
 func TestMetadataBuilderReuseSchema(t *testing.T) {
@@ -1024,13 +1025,13 @@ func TestTableDataV2NoSnapshots(t *testing.T) {
 			Loc:               "s3://b/wh/data.db/table",
 			LastUpdatedMS:     1515100955770,
 			LastColumnId:      1,
-			SchemaList:        []*iceberg.Schema{schema},
+			SchemaList:        map[int]*iceberg.Schema{schema.ID: schema},
 			CurrentSchemaID:   1,
 			Specs:             []iceberg.PartitionSpec{partitionSpec},
 			DefaultSpecID:     0,
 			LastPartitionID:   &i,
 			Props:             map[string]string{},
-			SnapshotList:      []Snapshot{},
+			SnapshotList:      map[int64]Snapshot{},
 			CurrentSnapshotID: nil,
 			SnapshotLog:       []SnapshotLogEntry{},
 			MetadataLog: []MetadataLogEntry{
@@ -1039,8 +1040,7 @@ func TestTableDataV2NoSnapshots(t *testing.T) {
 					TimestampMs:  1515100,
 				},
 			},
-
-			SortOrderList:      []SortOrder{UnsortedSortOrder},
+			SortOrderList:      map[int]SortOrder{UnsortedSortOrder.OrderID: UnsortedSortOrder},
 			DefaultSortOrderID: 0,
 			SnapshotRefs:       nil,
 		},
@@ -1585,7 +1585,7 @@ func TestTableMetadataV2FileValid(t *testing.T) {
 		Name:     "x",
 		Required: true,
 	})
-	schema2 := iceberg.NewSchemaWithIdentifiers(0, []int{1, 2}, iceberg.NestedField{
+	schema2 := iceberg.NewSchemaWithIdentifiers(1, []int{1, 2}, iceberg.NestedField{
 		Type:     iceberg.Int64Type{},
 		ID:       1,
 		Name:     "x",
@@ -1662,15 +1662,15 @@ func TestTableMetadataV2FileValid(t *testing.T) {
 			Loc:             "s3://bucket/test/location",
 			LastUpdatedMS:   1602638573590,
 			LastColumnId:    3,
-			SchemaList:      []*iceberg.Schema{schema1, schema2},
+			SchemaList:      map[int]*iceberg.Schema{schema1.ID: schema1, schema2.ID: schema2},
 			CurrentSchemaID: 1,
 			Specs:           []iceberg.PartitionSpec{spec},
 			DefaultSpecID:   0,
 			LastPartitionID: &i,
 			Props:           map[string]string{},
-			SnapshotList: []Snapshot{
-				snapshot1,
-				snapshot2,
+			SnapshotList: map[int64]Snapshot{
+				snapshot1.SnapshotID: snapshot1,
+				snapshot2.SnapshotID: snapshot2,
 			},
 			CurrentSnapshotID: &curSnap,
 			SnapshotLog: []SnapshotLogEntry{
@@ -1684,8 +1684,8 @@ func TestTableMetadataV2FileValid(t *testing.T) {
 				},
 			},
 			MetadataLog: []MetadataLogEntry{},
-			SortOrderList: []SortOrder{
-				sortOrder,
+			SortOrderList: map[int]SortOrder{
+				sortOrder.OrderID: sortOrder,
 			},
 			DefaultSortOrderID: 3,
 			SnapshotRefs: map[string]SnapshotRef{
@@ -1760,7 +1760,7 @@ func TestTableMetadataV2FileValidMinimal(t *testing.T) {
 			Loc:               "s3://bucket/test/location",
 			LastUpdatedMS:     1602638573590,
 			LastColumnId:      3,
-			SchemaList:        []*iceberg.Schema{schema},
+			SchemaList:        map[int]*iceberg.Schema{schema.ID: schema},
 			CurrentSchemaID:   0,
 			Specs:             []iceberg.PartitionSpec{spec},
 			DefaultSpecID:     0,
@@ -1770,8 +1770,8 @@ func TestTableMetadataV2FileValidMinimal(t *testing.T) {
 			CurrentSnapshotID: nil,
 			SnapshotLog:       []SnapshotLogEntry{},
 			MetadataLog:       []MetadataLogEntry{},
-			SortOrderList: []SortOrder{
-				sortOrder,
+			SortOrderList: map[int]SortOrder{
+				sortOrder.OrderID: sortOrder,
 			},
 			DefaultSortOrderID: 3,
 			SnapshotRefs:       map[string]SnapshotRef{},
@@ -1819,18 +1819,18 @@ func TestTableMetadataV1FileValid(t *testing.T) {
 			Loc:               "s3://bucket/test/location",
 			LastUpdatedMS:     1602638573874,
 			LastColumnId:      3,
-			SchemaList:        []*iceberg.Schema{schema},
+			SchemaList:        map[int]*iceberg.Schema{schema.ID: schema},
 			CurrentSchemaID:   0,
 			Specs:             []iceberg.PartitionSpec{spec},
 			DefaultSpecID:     0,
 			LastPartitionID:   &i,
 			Props:             map[string]string{},
-			SnapshotList:      []Snapshot{},
+			SnapshotList:      map[int64]Snapshot{},
 			CurrentSnapshotID: nil,
 			SnapshotLog:       []SnapshotLogEntry{},
 			MetadataLog:       []MetadataLogEntry{},
-			SortOrderList: []SortOrder{
-				UnsortedSortOrder,
+			SortOrderList: map[int]SortOrder{
+				UnsortedSortOrderID: UnsortedSortOrder,
 			},
 			DefaultSortOrderID: 0,
 			SnapshotRefs:       map[string]SnapshotRef{},
@@ -1952,7 +1952,8 @@ func TestDefaultSortOrder(t *testing.T) {
 	sortOrder := SortOrder{
 		OrderID: orderID,
 	}
-	meta.(*metadataV2).SortOrderList = append(meta.(*metadataV2).SortOrderList, sortOrder)
+
+	meta.(*metadataV2).SortOrderList[sortOrder.OrderID] = sortOrder
 	require.Equal(t, meta.SortOrder().OrderID, orderID)
 }
 

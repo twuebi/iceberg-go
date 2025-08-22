@@ -143,8 +143,8 @@ func (t Table) AllManifests(ctx context.Context) iter.Seq2[iceberg.ManifestFile,
 
 	n := len(t.metadata.Snapshots())
 	ch := make(chan list, n)
-
-	for i, sn := range t.metadata.Snapshots() {
+	i := 0
+	for _, sn := range t.metadata.Snapshots() {
 		g.Go(func() error {
 			manifests, err := sn.Manifests(fs)
 			if err != nil {
@@ -155,6 +155,7 @@ func (t Table) AllManifests(ctx context.Context) iter.Seq2[iceberg.ManifestFile,
 
 			return nil
 		})
+		i++
 	}
 
 	errch := make(chan error, 1)
