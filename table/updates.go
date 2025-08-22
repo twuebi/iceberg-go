@@ -270,16 +270,15 @@ type addSortOrderUpdate struct {
 // NewAddSortOrderUpdate creates a new update that adds the given sort order to the table metadata.
 // If the initial flag is set to true, the sort order is considered the initial sort order of the table,
 // and all previously added sort orders in the metadata builder are removed.
-func NewAddSortOrderUpdate(sortOrder *SortOrder, initial bool) *addSortOrderUpdate {
+func NewAddSortOrderUpdate(sortOrder *SortOrder) *addSortOrderUpdate {
 	return &addSortOrderUpdate{
 		baseUpdate: baseUpdate{ActionName: UpdateAddSortOrder},
 		SortOrder:  sortOrder,
-		initial:    initial,
 	}
 }
 
 func (u *addSortOrderUpdate) Apply(builder *MetadataBuilder) error {
-	_, err := builder.AddSortOrder(u.SortOrder, u.initial)
+	_, err := builder.AddSortOrder(u.SortOrder)
 
 	return err
 }
@@ -553,12 +552,12 @@ func (u *removeSnapshotRefUpdate) Apply(builder *MetadataBuilder) error {
 
 type removeSpecUpdate struct {
 	baseUpdate
-	SpecIds []int64 `json:"spec-ids"`
+	SpecIds []int `json:"spec-ids"`
 }
 
 // NewRemoveSpecUpdate creates a new Update that removes a list of partition specs
 // from the table metadata.
-func NewRemoveSpecUpdate(specIds []int64) *removeSpecUpdate {
+func NewRemoveSpecUpdate(specIds []int) *removeSpecUpdate {
 	return &removeSpecUpdate{
 		baseUpdate: baseUpdate{ActionName: UpdateRemoveSpec},
 		SpecIds:    specIds,
@@ -566,23 +565,27 @@ func NewRemoveSpecUpdate(specIds []int64) *removeSpecUpdate {
 }
 
 func (u *removeSpecUpdate) Apply(builder *MetadataBuilder) error {
-	return fmt.Errorf("%w: %s", iceberg.ErrNotImplemented, UpdateRemoveSpec)
+	_, err := builder.RemovePartitionSpecs(u.SpecIds)
+
+	return err
 }
 
 type removeSchemasUpdate struct {
 	baseUpdate
-	SchemaIds []int64 `json:"schema-ids"`
+	SchemaIDs []int `json:"schema-ids"`
 }
 
 // NewRemoveSchemasUpdate creates a new Update that removes a list of schemas from
 // the table metadata.
-func NewRemoveSchemasUpdate(schemaIds []int64) *removeSchemasUpdate {
+func NewRemoveSchemasUpdate(schemaIds []int) *removeSchemasUpdate {
 	return &removeSchemasUpdate{
 		baseUpdate: baseUpdate{ActionName: UpdateRemoveSchemas},
-		SchemaIds:  schemaIds,
+		SchemaIDs:  schemaIds,
 	}
 }
 
 func (u *removeSchemasUpdate) Apply(builder *MetadataBuilder) error {
-	return fmt.Errorf("%w: %s", iceberg.ErrNotImplemented, UpdateRemoveSchemas)
+	_, err := builder.RemoveSchemas(u.SchemaIDs)
+
+	return err
 }

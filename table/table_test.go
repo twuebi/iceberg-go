@@ -785,7 +785,7 @@ func (m *mockedCatalog) LoadTable(ctx context.Context, ident table.Identifier, p
 }
 
 func (m *mockedCatalog) CommitTable(ctx context.Context, tbl *table.Table, reqs []table.Requirement, updates []table.Update) (table.Metadata, string, error) {
-	bldr, err := table.MetadataBuilderFromBase(tbl.Metadata())
+	bldr, err := table.MetadataBuilderFromBase(tbl.Metadata(), nil)
 	if err != nil {
 		return nil, "", err
 	}
@@ -1328,7 +1328,7 @@ func (m *DeleteOldMetadataMockedCatalog) LoadTable(ctx context.Context, ident ta
 }
 
 func (m *DeleteOldMetadataMockedCatalog) CommitTable(ctx context.Context, tbl *table.Table, reqs []table.Requirement, updates []table.Update) (table.Metadata, string, error) {
-	bldr, err := table.MetadataBuilderFromBase(tbl.Metadata())
+	bldr, err := table.MetadataBuilderFromBase(tbl.Metadata(), nil)
 	if err != nil {
 		return nil, "", err
 	}
