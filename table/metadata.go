@@ -1467,6 +1467,11 @@ func (c *commonMetadata) constructRefs() {
 }
 
 func (c *commonMetadata) validate() error {
+	// UUID validation for V2 format
+	if c.FormatVersion >= 2 && c.UUID == uuid.Nil {
+		return fmt.Errorf("%w: UUID is required in format v2", ErrInvalidMetadata)
+	}
+	
 	switch {
 	case c.LastUpdatedMS == 0:
 		// last-updated-ms is required
@@ -1478,7 +1483,7 @@ func (c *commonMetadata) validate() error {
 		return fmt.Errorf("%w: no valid schema configuration found in table metadata", ErrInvalidMetadata)
 	case c.LastPartitionID == nil:
 		if c.FormatVersion > 1 {
-			return fmt.Errorf("%w: last-partition-id must be set for FormatVersion > 1.ß", ErrInvalidMetadata)
+			return fmt.Errorf("%w: last-partition-id must be set for FormatVersion > 1", ErrInvalidMetadata)
 		}
 	}
 
