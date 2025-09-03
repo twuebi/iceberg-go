@@ -1471,7 +1471,7 @@ func (c *commonMetadata) validate() error {
 	if c.FormatVersion >= 2 && c.UUID == uuid.Nil {
 		return fmt.Errorf("%w: UUID is required in format v2", ErrInvalidMetadata)
 	}
-	
+
 	switch {
 	case c.LastUpdatedMS == 0:
 		// last-updated-ms is required
