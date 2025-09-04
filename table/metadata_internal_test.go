@@ -1956,6 +1956,18 @@ func TestDefaultSortOrder(t *testing.T) {
 	require.Equal(t, meta.SortOrder().OrderID, orderID)
 }
 
+// Java: TestTableMetadata.testParseSchemaIdentifierFields
+func TestParseSchemaIdentifierFields(t *testing.T) {
+	meta, err := getTestTableMetadata("TableMetadataV2Valid.json")
+	require.NoError(t, err)
+	// Verify identifier fields
+	schemas := meta.Schemas()
+	require.Len(t, schemas, 2)
+
+	require.Empty(t, schemas[0].IdentifierFieldIDs)
+	require.Equal(t, []int{1, 2}, schemas[1].IdentifierFieldIDs)
+}
+
 func getTestTableMetadata(fileName string) (Metadata, error) {
 	fCont, err := os.ReadFile(path.Join("testdata", fileName))
 	if err != nil {
