@@ -887,3 +887,53 @@ func TestRemoveSchemas(t *testing.T) {
 	require.Equal(t, builder.updates[0].Action(), UpdateRemoveSchemas)
 	require.Equal(t, builder.updates[0].(*removeSchemasUpdate).SchemaIDs, []int{0}, "expected schema ID 0 to be removed")
 }
+
+// Java: TestTableMetadata.testUpdateSchema
+func TestUpdateSchema(t *testing.T) {
+	// Test schema updates and evolution
+	schema1 := iceberg.NewSchema(
+		0,
+		iceberg.NestedField{ID: 1, Name: "y", Type: iceberg.PrimitiveTypes.Int64, Required: true, Doc: "comment"},
+	)
+
+	meta, err := NewMetadata(
+		schema1,
+		iceberg.UnpartitionedSpec,
+		UnsortedSortOrder,
+		"s3://bucket/test/location",
+		map[string]string{},
+	)
+	require.NoError(t, err)
+
+	require.Equal(t, 0, meta.CurrentSchema().ID)
+	require.Len(t, meta.Schemas(), 1)
+	require.Equal(t, 1, meta.LastColumnID())
+
+	// Update schema by adding a field
+	schema2 := iceberg.NewSchema(
+		1,
+		iceberg.NestedField{ID: 1, Name: "y", Type: iceberg.PrimitiveTypes.Int64, Required: true, Doc: "comment"},
+		iceberg.NestedField{ID: 2, Name: "x", Type: iceberg.PrimitiveTypes.String, Required: true},
+	)
+
+	builder, err := MetadataBuilderFromBase(meta, nil)
+	require.NoError(t, err)
+
+	_, err = builder.AddSchema(schema2)
+	require.NoError(t, err)
+
+	_, err = builder.SetCurrentSchemaID(-1) // Use last added
+	require.NoError(t, err)
+
+	updatedMeta, err := builder.Build()
+	require.NoError(t, err)
+
+	require.Equal(t, 1, updatedMeta.CurrentSchema().ID)
+	require.Len(t, updatedMeta.Schemas(), 2)
+	require.Equal(t, 2, updatedMeta.LastColumnID())
+
+	// Verify both schemas are preserved
+	schemas := updatedMeta.Schemas()
+	require.True(t, schemas[0].Equals(schema1))
+	require.True(t, schemas[1].Equals(schema2))
+}
