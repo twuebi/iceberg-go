@@ -680,9 +680,46 @@ func (b *MetadataBuilder) SetLoc(loc string) (*MetadataBuilder, error) {
 	return b, nil
 }
 
+// Reserved table property for table format version.
+//
+// Iceberg will default a new table's format version to the latest stable and recommended
+// version. This reserved property keyword allows users to override the Iceberg format version of
+// the table metadata.
+//
+// If this table property exists when creating a table, the table will use the specified format
+// version. If a table updates this property, it will try to upgrade to the specified format
+// version.
+const (
+	PROPERTY_FORMAT_VERSION             = "format-version"
+	PROPERTY_UUID                       = "uuid"
+	PROPERTY_SNAPSHOT_COUNT             = "snapshot-count"
+	PROPERTY_CURRENT_SNAPSHOT_ID        = "current-snapshot-id"
+	PROPERTY_CURRENT_SNAPSHOT_SUMMARY   = "current-snapshot-summary"
+	PROPERTY_CURRENT_SNAPSHOT_TIMESTAMP = "current-snapshot-timestamp"
+	PROPERTY_CURRENT_SCHEMA             = "current-schema"
+	PROPERTY_DEFAULT_PARTITION_SPEC     = "default-partition-spec"
+	PROPERTY_DEFAULT_SORT_ORDER         = "default-sort-order"
+)
+
+var RESERVED_PROPERTIES = [9]string{PROPERTY_FORMAT_VERSION,
+	PROPERTY_UUID,
+	PROPERTY_SNAPSHOT_COUNT,
+	PROPERTY_CURRENT_SNAPSHOT_ID,
+	PROPERTY_CURRENT_SNAPSHOT_SUMMARY,
+	PROPERTY_CURRENT_SNAPSHOT_TIMESTAMP,
+	PROPERTY_CURRENT_SCHEMA,
+	PROPERTY_DEFAULT_PARTITION_SPEC,
+	PROPERTY_DEFAULT_SORT_ORDER}
+
 func (b *MetadataBuilder) SetProperties(props iceberg.Properties) (*MetadataBuilder, error) {
 	if len(props) == 0 {
 		return b, nil
+	}
+
+	for _, key := range RESERVED_PROPERTIES {
+		if _, ok := props[key]; ok {
+			return nil, fmt.Errorf("can't set reserved property %s", key)
+		}
 	}
 
 	b.updates = append(b.updates, NewSetPropertiesUpdate(props))
@@ -1467,11 +1504,6 @@ func (c *commonMetadata) constructRefs() {
 }
 
 func (c *commonMetadata) validate() error {
-	// UUID validation for V2 format
-	if c.FormatVersion >= 2 && c.UUID == uuid.Nil {
-		return fmt.Errorf("%w: UUID is required in format v2", ErrInvalidMetadata)
-	}
-
 	switch {
 	case c.LastUpdatedMS == 0:
 		// last-updated-ms is required
@@ -1756,12 +1788,12 @@ func NewMetadataWithUUID(sc *iceberg.Schema, partitions *iceberg.PartitionSpec, 
 
 	formatVersion := DefaultFormatVersion
 	if props != nil {
-		verStr, ok := props["format-version"]
+		verStr, ok := props[PROPERTY_FORMAT_VERSION]
 		if ok {
 			if formatVersion, err = strconv.Atoi(verStr); err != nil {
 				formatVersion = DefaultFormatVersion
 			}
-			delete(props, "format-version")
+			delete(props, PROPERTY_FORMAT_VERSION)
 		}
 	}
 
