@@ -1398,47 +1398,98 @@ func NewMetadataWithUUID(sc *iceberg.Schema, partitions *iceberg.PartitionSpec, 
 			delete(props, "format-version")
 		}
 	}
-	freshSchema, err := iceberg.AssignFreshSchemaIDs(sc, nil)
+
+	reassignedIds, err := reassignIDs(sc, partitions, sortOrder)
 	if err != nil {
 		return nil, err
-	}
-	freshSpec, err := partitions.BindToSchema(freshSchema, nil, nil, false)
-	if err != nil {
-		return nil, err
-	}
-	for f := range freshSpec.Fields() {
-		if _, ok := sc.FindColumnName(f.FieldID); !ok {
-			return nil, fmt.Errorf("cannot find source column with id %d for partition column %s", f.FieldID, f.Name)
-		}
 	}
 
 	builder, err := NewMetadataBuilder()
 	if err != nil {
 		return nil, err
 	}
+
 	_, err = builder.SetFormatVersion(formatVersion)
 	if err != nil {
 		return nil, err
 	}
+
 	_, err = builder.SetUUID(tableUuid)
 	if err != nil {
 		return nil, err
 	}
-	_, err = builder.AddSortOrder(&sortOrder, true)
+
+	_, err = builder.AddSortOrder(&reassignedIds.sortOrder, true)
 	if err != nil {
 		return nil, err
 	}
-	_, err = builder.AddSchema(freshSchema)
+
+	_, err = builder.SetDefaultSortOrderID(-1)
 	if err != nil {
 		return nil, err
 	}
+
+	_, err = builder.AddSchema(reassignedIds.schema)
+	if err != nil {
+		return nil, err
+	}
+
 	_, err = builder.SetCurrentSchemaID(-1)
 	if err != nil {
-		panic(err)
+		return nil, err
 	}
-	_, err = builder.AddPartitionSpec(&freshSpec, true)
+
+	_, err = builder.AddPartitionSpec(reassignedIds.partitionSpec, true)
 	if err != nil {
-		panic(err)
+		return nil, err
 	}
+
+	_, err = builder.SetLoc(location)
+	if err != nil {
+		return nil, err
+	}
+
 	return builder.Build()
+}
+
+type ReassignedIds struct {
+	schema        *iceberg.Schema
+	partitionSpec *iceberg.PartitionSpec
+	sortOrder     SortOrder
+}
+
+func reassignIDs(sc *iceberg.Schema, partitions *iceberg.PartitionSpec, sortOrder SortOrder) (*ReassignedIds, error) {
+	previousMapFn := sc.FindColumnName
+	freshSc, err := iceberg.AssignFreshSchemaIDs(sc, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	if partitions == nil {
+		partitions = iceberg.UnpartitionedSpec
+	}
+	opts := make([]iceberg.PartitionOption, 0)
+	for f := range partitions.Fields() {
+		var s string
+		var ok bool
+		if s, ok = previousMapFn(f.SourceID); !ok {
+			return nil, fmt.Errorf("field %d not found in schema", f.FieldID)
+		}
+		opts = append(opts, iceberg.AddPartitionFieldByName(s, f.Name, f.Transform, freshSc, nil))
+	}
+	freshPartitions, err := iceberg.NewPartitionSpecOpts(opts...)
+	if err != nil {
+		return nil, err
+	}
+
+	freshSortOrder, err := AssignFreshSortOrderIDs(sortOrder, sc, freshSc)
+	if err != nil {
+		return nil, err
+	}
+
+	return &ReassignedIds{
+		schema:        freshSc,
+		partitionSpec: &freshPartitions,
+		sortOrder:     freshSortOrder,
+	}, nil
 }

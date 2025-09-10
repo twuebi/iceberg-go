@@ -139,6 +139,25 @@ func WithSpecID(id int) PartitionOption {
 	}
 }
 
+func AddPartitionFieldByName(sourceName string, targetName string, transform Transform, schema *Schema, fieldID *int) PartitionOption {
+	return func(p *PartitionSpec) error {
+		if schema == nil {
+			return errors.New("cannot add partition field with nil schema")
+		}
+		field, ok := schema.FindFieldByName(sourceName)
+
+		if !ok {
+			return fmt.Errorf("cannot find source column with name: %s in schema", sourceName)
+		}
+		err := p.addSpecFieldInternal(targetName, field, transform, fieldID)
+		if err != nil {
+			return err
+		}
+
+		return nil
+	}
+}
+
 func AddPartitionFieldBySourceID(sourceID int, targetName string, transform Transform, schema *Schema, fieldID *int) PartitionOption {
 	return func(p *PartitionSpec) error {
 		if schema == nil {
@@ -281,6 +300,10 @@ func (ps PartitionSpec) Equals(other PartitionSpec) bool {
 
 // Fields returns a clone of the partition fields in this spec.
 func (ps *PartitionSpec) Fields() iter.Seq[PartitionField] {
+	if ps.fields == nil {
+		return slices.Values([]PartitionField{})
+	}
+
 	return slices.Values(ps.fields)
 }
 
