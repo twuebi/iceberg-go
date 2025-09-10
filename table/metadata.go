@@ -1449,6 +1449,11 @@ func NewMetadataWithUUID(sc *iceberg.Schema, partitions *iceberg.PartitionSpec, 
 		return nil, err
 	}
 
+	_, err = builder.SetProperties(props)
+	if err != nil {
+		return nil, err
+	}
+
 	return builder.Build()
 }
 
