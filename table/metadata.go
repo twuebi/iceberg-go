@@ -287,7 +287,7 @@ func (b *MetadataBuilder) AddSchema(schema *iceberg.Schema) (*MetadataBuilder, e
 func (b *MetadataBuilder) AddPartitionSpec(spec *iceberg.PartitionSpec, initial bool) (*MetadataBuilder, error) {
 	newSpecID := b.reuseOrCreateNewPartitionSpecID(*spec)
 
-	freshSpec, err := spec.BindToSchema(b.CurrentSchema(), b.lastPartitionID, &newSpecID)
+	freshSpec, err := spec.BindToSchema(b.CurrentSchema(), b.lastPartitionID, &newSpecID, false)
 	if err != nil {
 		return nil, err
 	}
@@ -1384,25 +1384,10 @@ func NewMetadata(sc *iceberg.Schema, partitions *iceberg.PartitionSpec, sortOrde
 
 // NewMetadataWithUUID is like NewMetadata, but allows the caller to specify the UUID of the table rather than creating a new one.
 func NewMetadataWithUUID(sc *iceberg.Schema, partitions *iceberg.PartitionSpec, sortOrder SortOrder, location string, props iceberg.Properties, tableUuid uuid.UUID) (Metadata, error) {
-	freshSchema, err := iceberg.AssignFreshSchemaIDs(sc, nil)
-	if err != nil {
-		return nil, err
-	}
-
-	freshPartitions, err := iceberg.AssignFreshPartitionSpecIDs(partitions, sc, freshSchema)
-	if err != nil {
-		return nil, err
-	}
-
-	freshSortOrder, err := AssignFreshSortOrderIDs(sortOrder, sc, freshSchema)
-	if err != nil {
-		return nil, err
-	}
-
 	if tableUuid == uuid.Nil {
 		tableUuid = uuid.New()
 	}
-
+	var err error
 	formatVersion := DefaultFormatVersion
 	if props != nil {
 		verStr, ok := props["format-version"]
@@ -1413,34 +1398,47 @@ func NewMetadataWithUUID(sc *iceberg.Schema, partitions *iceberg.PartitionSpec, 
 			delete(props, "format-version")
 		}
 	}
-
-	lastPartitionID := freshPartitions.LastAssignedFieldID()
-	common := commonMetadata{
-		LastUpdatedMS:      time.Now().UnixMilli(),
-		LastColumnId:       freshSchema.HighestFieldID(),
-		FormatVersion:      formatVersion,
-		UUID:               tableUuid,
-		Loc:                location,
-		SchemaList:         []*iceberg.Schema{freshSchema},
-		CurrentSchemaID:    freshSchema.ID,
-		Specs:              []iceberg.PartitionSpec{freshPartitions},
-		DefaultSpecID:      freshPartitions.ID(),
-		LastPartitionID:    &lastPartitionID,
-		Props:              props,
-		SortOrderList:      []SortOrder{freshSortOrder},
-		DefaultSortOrderID: freshSortOrder.OrderID,
+	freshSchema, err := iceberg.AssignFreshSchemaIDs(sc, nil)
+	if err != nil {
+		return nil, err
+	}
+	freshSpec, err := partitions.BindToSchema(freshSchema, nil, nil, false)
+	if err != nil {
+		return nil, err
+	}
+	for f := range freshSpec.Fields() {
+		if _, ok := sc.FindColumnName(f.FieldID); !ok {
+			return nil, fmt.Errorf("cannot find source column with id %d for partition column %s", f.FieldID, f.Name)
+		}
 	}
 
-	switch formatVersion {
-	case 1:
-		return &metadataV1{
-			commonMetadata: common,
-			Schema:         freshSchema,
-			Partition:      slices.Collect(freshPartitions.Fields()),
-		}, nil
-	case 2:
-		return &metadataV2{commonMetadata: common}, nil
-	default:
-		return nil, fmt.Errorf("invalid format version: %d", formatVersion)
+	builder, err := NewMetadataBuilder()
+	if err != nil {
+		return nil, err
 	}
+	_, err = builder.SetFormatVersion(formatVersion)
+	if err != nil {
+		return nil, err
+	}
+	_, err = builder.SetUUID(tableUuid)
+	if err != nil {
+		return nil, err
+	}
+	_, err = builder.AddSortOrder(&sortOrder, true)
+	if err != nil {
+		return nil, err
+	}
+	_, err = builder.AddSchema(freshSchema)
+	if err != nil {
+		return nil, err
+	}
+	_, err = builder.SetCurrentSchemaID(-1)
+	if err != nil {
+		panic(err)
+	}
+	_, err = builder.AddPartitionSpec(&freshSpec, true)
+	if err != nil {
+		panic(err)
+	}
+	return builder.Build()
 }
