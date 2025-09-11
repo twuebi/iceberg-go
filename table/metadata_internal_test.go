@@ -188,7 +188,7 @@ func TestMetadataV2Parsing(t *testing.T) {
 	assert.EqualValues(t, 3055729675574597004, *data.CurrentSnapshotID)
 	assert.EqualValues(t, 3051729675574597004, data.SnapshotList[0].SnapshotID)
 	assert.Equal(t, int64(1515100955770), data.SnapshotLog[0].TimestampMs)
-	assert.Equal(t, 3, data.SortOrderList[0].OrderID)
+	assert.Equal(t, 3, data.SortOrderList[0].OrderID())
 	assert.Equal(t, 3, data.DefaultSortOrderID)
 
 	assert.Len(t, meta.Snapshots(), 2)
@@ -556,14 +556,12 @@ func TestNewMetadataWithExplicitV1Format(t *testing.T) {
 	partitionSpec := iceberg.NewPartitionSpecID(10,
 		iceberg.PartitionField{SourceID: 22, FieldID: 1022, Transform: iceberg.IdentityTransform{}, Name: "bar"})
 
-	sortOrder := SortOrder{
-		OrderID: 10,
-		Fields: []SortField{{
-			SourceID:  10,
-			Transform: iceberg.IdentityTransform{},
-			Direction: SortASC, NullOrder: NullsLast,
-		}},
-	}
+	sortOrder, err := NewSortOrder(10, []SortField{{
+		SourceID:  10,
+		Transform: iceberg.IdentityTransform{},
+		Direction: SortASC, NullOrder: NullsLast,
+	}})
+	require.NoError(t, err)
 
 	actual, err := NewMetadata(schema, &partitionSpec, sortOrder, "s3://some_v1_location/", iceberg.Properties{"format-version": "1"})
 	require.NoError(t, err)
@@ -576,13 +574,11 @@ func TestNewMetadataWithExplicitV1Format(t *testing.T) {
 	expectedSpec := iceberg.NewPartitionSpec(
 		iceberg.PartitionField{SourceID: 2, FieldID: 1000, Transform: iceberg.IdentityTransform{}, Name: "bar"})
 
-	expectedSortOrder := SortOrder{
-		OrderID: 1,
-		Fields: []SortField{{
-			SourceID: 1, Transform: iceberg.IdentityTransform{},
-			Direction: SortASC, NullOrder: NullsLast,
-		}},
-	}
+	expectedSortOrder, err := NewSortOrder(1, []SortField{{
+		SourceID: 1, Transform: iceberg.IdentityTransform{},
+		Direction: SortASC, NullOrder: NullsLast,
+	}})
+	require.NoError(t, err)
 
 	lastPartitionID := 1000
 	expected := &metadataV1{
@@ -618,14 +614,12 @@ func TestNewMetadataV2Format(t *testing.T) {
 	partitionSpec := iceberg.NewPartitionSpecID(10,
 		iceberg.PartitionField{SourceID: 22, FieldID: 1022, Transform: iceberg.IdentityTransform{}, Name: "bar"})
 
-	sortOrder := SortOrder{
-		OrderID: 10,
-		Fields: []SortField{{
-			SourceID:  10,
-			Transform: iceberg.IdentityTransform{},
-			Direction: SortASC, NullOrder: NullsLast,
-		}},
-	}
+	sortOrder, err := NewSortOrder(10, []SortField{{
+		SourceID:  10,
+		Transform: iceberg.IdentityTransform{},
+		Direction: SortASC, NullOrder: NullsLast,
+	}})
+	require.NoError(t, err)
 
 	tableUUID := uuid.New()
 
@@ -640,13 +634,11 @@ func TestNewMetadataV2Format(t *testing.T) {
 	expectedSpec := iceberg.NewPartitionSpec(
 		iceberg.PartitionField{SourceID: 2, FieldID: 1000, Transform: iceberg.IdentityTransform{}, Name: "bar"})
 
-	expectedSortOrder := SortOrder{
-		OrderID: 1,
-		Fields: []SortField{{
-			SourceID: 1, Transform: iceberg.IdentityTransform{},
-			Direction: SortASC, NullOrder: NullsLast,
-		}},
-	}
+	expectedSortOrder, err := NewSortOrder(1, []SortField{{
+		SourceID: 1, Transform: iceberg.IdentityTransform{},
+		Direction: SortASC, NullOrder: NullsLast,
+	}})
+	require.NoError(t, err)
 
 	lastPartitionID := 1000
 	expected := &metadataV2{
@@ -1608,25 +1600,24 @@ func TestTableMetadataV2FileValid(t *testing.T) {
 		Name:      "x",
 		Transform: iceberg.IdentityTransform{},
 	})
-	sortOrder := SortOrder{
-		OrderID: 3,
-		Fields: []SortField{
-			{
-				SourceID:  2,
-				Transform: iceberg.IdentityTransform{},
-				Direction: SortASC,
-				NullOrder: NullsFirst,
-			},
-			{
-				SourceID: 3,
-				Transform: iceberg.BucketTransform{
-					NumBuckets: 4,
-				},
-				Direction: SortDESC,
-				NullOrder: NullsLast,
-			},
+
+	sortOrder, err := NewSortOrder(3, []SortField{
+		{
+			SourceID:  2,
+			Transform: iceberg.IdentityTransform{},
+			Direction: SortASC,
+			NullOrder: NullsFirst,
 		},
-	}
+		{
+			SourceID: 3,
+			Transform: iceberg.BucketTransform{
+				NumBuckets: 4,
+			},
+			Direction: SortDESC,
+			NullOrder: NullsLast,
+		},
+	})
+	require.NoError(t, err)
 	summary := Summary{
 		Operation:  OpAppend,
 		Properties: map[string]string{},
@@ -1732,9 +1723,9 @@ func TestTableMetadataV2FileValidMinimal(t *testing.T) {
 		Name:      "x",
 		Transform: iceberg.IdentityTransform{},
 	})
-	sortOrder := SortOrder{
-		OrderID: 3,
-		Fields: []SortField{
+	sortOrder, err := NewSortOrder(
+		3,
+		[]SortField{
 			{
 				SourceID:  2,
 				Transform: iceberg.IdentityTransform{},
@@ -1750,7 +1741,9 @@ func TestTableMetadataV2FileValidMinimal(t *testing.T) {
 				NullOrder: NullsLast,
 			},
 		},
-	}
+	)
+	require.NoError(t, err)
+
 	i := 1000
 	expected := metadataV2{
 		LastSeqNum: 34,
@@ -1949,11 +1942,11 @@ func TestDefaultSortOrder(t *testing.T) {
 	meta, err := getTestTableMetadata("TableMetadataV2Valid.json")
 	require.NoError(t, err)
 	meta.(*metadataV2).DefaultSortOrderID = orderID
-	sortOrder := SortOrder{
-		OrderID: orderID,
-	}
+	sortOrder, err := NewSortOrder(orderID, nil)
+	require.NoError(t, err)
+
 	meta.(*metadataV2).SortOrderList = append(meta.(*metadataV2).SortOrderList, sortOrder)
-	require.Equal(t, meta.SortOrder().OrderID, orderID)
+	require.Equal(t, meta.SortOrder().OrderID(), orderID)
 }
 
 // Java: TestTableMetadata.testParseSchemaIdentifierFields

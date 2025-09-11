@@ -412,13 +412,13 @@ func (b *MetadataBuilder) AddSortOrder(sortOrder *SortOrder) (*MetadataBuilder, 
 	if _, err := b.GetSortOrderByID(newOrderID); err == nil {
 		if b.lastAddedSortOrderID != &newOrderID {
 			b.lastAddedSortOrderID = &newOrderID
-			sortOrder.OrderID = newOrderID
+			sortOrder.orderID = newOrderID
 			b.updates = append(b.updates, NewAddSortOrderUpdate(sortOrder))
 		}
 
 		return b, nil
 	}
-	sortOrder.OrderID = newOrderID
+	sortOrder.orderID = newOrderID
 
 	sortOrders := b.sortOrderList
 
@@ -427,8 +427,8 @@ func (b *MetadataBuilder) AddSortOrder(sortOrder *SortOrder) (*MetadataBuilder, 
 	}
 
 	for _, s := range sortOrders {
-		if s.OrderID == sortOrder.OrderID {
-			return nil, fmt.Errorf("sort order with id %d already exists", sortOrder.OrderID)
+		if s.orderID == sortOrder.orderID {
+			return nil, fmt.Errorf("sort order with id %d already exists", sortOrder.orderID)
 		}
 	}
 
@@ -482,10 +482,10 @@ func (b *MetadataBuilder) SetCurrentSchemaID(currentSchemaID int) (*MetadataBuil
 func (b *MetadataBuilder) SetDefaultSortOrderID(defaultSortOrderID int) (*MetadataBuilder, error) {
 	if defaultSortOrderID == -1 {
 		defaultSortOrderID = maxBy(b.sortOrderList, func(s SortOrder) int {
-			return s.OrderID
+			return s.orderID
 		})
 		if !slices.ContainsFunc(b.updates, func(u Update) bool {
-			return u.Action() == UpdateAddSortOrder && u.(*addSortOrderUpdate).SortOrder.OrderID == defaultSortOrderID
+			return u.Action() == UpdateAddSortOrder && u.(*addSortOrderUpdate).SortOrder.orderID == defaultSortOrderID
 		}) {
 			return nil, errors.New("can't set default sort order to last added with no added sort orders")
 		}
@@ -866,7 +866,7 @@ func (b *MetadataBuilder) GetSpecByID(id int) (*iceberg.PartitionSpec, error) {
 
 func (b *MetadataBuilder) GetSortOrderByID(id int) (*SortOrder, error) {
 	for _, s := range b.sortOrderList {
-		if s.OrderID == id {
+		if s.orderID == id {
 			return &s, nil
 		}
 	}
@@ -963,16 +963,16 @@ func (b *MetadataBuilder) Build() (Metadata, error) {
 
 func (b *MetadataBuilder) reuseOrCreateNewSortOrderID(newOrder *SortOrder) int {
 	if newOrder.IsUnsorted() {
-		return UnsortedSortOrder.OrderID
+		return UnsortedSortOrder.orderID
 	}
 
 	newOrderID := UnsortedSortOrderID + 1
 	for _, order := range b.sortOrderList {
-		if slices.Equal(order.Fields, newOrder.Fields) {
-			return order.OrderID
+		if slices.Equal(order.fields, newOrder.fields) {
+			return order.orderID
 		}
-		if order.OrderID >= newOrderID {
-			newOrderID = order.OrderID + 1
+		if order.orderID >= newOrderID {
+			newOrderID = order.orderID + 1
 		}
 	}
 
@@ -1269,7 +1269,7 @@ func (c *commonMetadata) CurrentSnapshot() *Snapshot {
 func (c *commonMetadata) SortOrders() []SortOrder { return c.SortOrderList }
 func (c *commonMetadata) SortOrder() SortOrder {
 	for _, s := range c.SortOrderList {
-		if s.OrderID == c.DefaultSortOrderID {
+		if s.orderID == c.DefaultSortOrderID {
 			return s
 		}
 	}
@@ -1351,12 +1351,15 @@ func (c *commonMetadata) checkSortOrders() error {
 	}
 
 	for _, o := range c.SortOrderList {
-		if o.OrderID == c.DefaultSortOrderID {
+		if o.orderID == c.DefaultSortOrderID {
 			if err := o.CheckCompatibility(c.CurrentSchema()); err != nil {
-				return fmt.Errorf("default sort order %d is not compatible with current schema: %w", o.OrderID, err)
+				return fmt.Errorf("default sort order %d is not compatible with current schema: %w", o.orderID, err)
 			}
 
 			return nil
+		}
+		if o.orderID == UnsortedSortOrderID && len(o.fields) != 0 {
+			return fmt.Errorf("sort order ID %d is reserved for unsorted order", UnsortedSortOrderID)
 		}
 	}
 
@@ -1379,10 +1382,8 @@ func (c *commonMetadata) constructRefs() {
 func (c *commonMetadata) validate() error {
 	switch {
 	case c.LastUpdatedMS == 0:
-		// last-updated-ms is required
 		return fmt.Errorf("%w: missing last-updated-ms", ErrInvalidMetadata)
 	case c.LastColumnId < 0:
-		// last-column-id is required
 		return fmt.Errorf("%w: missing last-column-id", ErrInvalidMetadata)
 	case c.CurrentSchemaID < 0:
 		return fmt.Errorf("%w: no valid schema configuration found in table metadata", ErrInvalidMetadata)

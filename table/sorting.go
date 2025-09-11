@@ -21,6 +21,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"iter"
 	"slices"
 	"strings"
 
@@ -125,7 +126,7 @@ const (
 )
 
 // A default Sort Order indicating no sort order at all
-var UnsortedSortOrder = SortOrder{OrderID: UnsortedSortOrderID, Fields: []SortField{}}
+var UnsortedSortOrder = SortOrder{orderID: UnsortedSortOrderID, fields: []SortField{}}
 
 // SortOrder describes how the data is sorted within the table.
 //
@@ -133,12 +134,28 @@ var UnsortedSortOrder = SortOrder{OrderID: UnsortedSortOrderID, Fields: []SortFi
 // order of the sort fields within the list defines the order in which the
 // sort is applied to the data.
 type SortOrder struct {
-	OrderID int         `json:"order-id"`
-	Fields  []SortField `json:"fields"`
+	orderID int
+	fields  []SortField
 }
 
-func (s SortOrder) CheckCompatibility(schema *iceberg.Schema) error {
-	for _, field := range s.Fields {
+func (s SortOrder) OrderID() int {
+	return s.orderID
+}
+
+func (s SortOrder) Fields() iter.Seq[SortField] {
+	return slices.Values(s.fields)
+}
+
+func (s SortOrder) Len() int {
+	return len(s.fields)
+}
+
+func (s *SortOrder) CheckCompatibility(schema *iceberg.Schema) error {
+	if s == nil {
+		return nil
+	}
+
+	for _, field := range s.fields {
 		f, ok := schema.FindFieldByID(field.SourceID)
 		if !ok {
 			return fmt.Errorf("sort field with source id %d not found in schema", field.SourceID)
@@ -148,37 +165,87 @@ func (s SortOrder) CheckCompatibility(schema *iceberg.Schema) error {
 			return fmt.Errorf("cannot sort by non-primitive source field: %s", f.Type.Type())
 		}
 		// FIXME: rust has fallible ResultType for invalid transforms:
-		//         if field_transform.result_type(source_type).is_err() {
-		//                        return Err(Error::new(
-		//                            ErrorKind::Unexpected,
+		// 	if field_transform.result_type(source_type).is_err() {
+		//      return Err(Error::new(ErrorKind::Unexpected,
 		//                            format!(
 		//                                "Invalid source type {source_type} for transform {field_transform}"
 		//                            ),
-		//                        ));
-		//                    }
-		// typ, err :=field.Transform.ResultType(f.Type)
-		// if err != nil {
-		// 	return fmt.Errorf("invalid source type %s for transform %s: %w", f.Type.Type(), field.Transform, err)
-		// }
+		//                 ));
+		//  }
+		//  ---------
+		//  typ, err :=field.Transform.ResultType(f.Type)
+		//  if err != nil {
+		//  	return fmt.Errorf("invalid source type %s for transform %s: %w", f.Type.Type(), field.Transform, err)
+		//  }
 	}
 
 	return nil
 }
 
+func (s SortOrder) MarshalJSON() ([]byte, error) {
+	type Alias struct {
+		OrderID int         `json:"order-id"`
+		Fields  []SortField `json:"fields"`
+	}
+
+	return json.Marshal(Alias{
+		s.orderID,
+		s.fields,
+	})
+}
+
+func (s *SortOrder) UnmarshalJSON(b []byte) error {
+	type Alias struct {
+		OrderID int         `json:"order-id"`
+		Fields  []SortField `json:"fields"`
+	}
+	aux := Alias{-1, nil}
+
+	if err := json.Unmarshal(b, &aux); err != nil {
+		return err
+	}
+	s.orderID = aux.OrderID
+	s.fields = aux.Fields
+
+	if len(s.fields) == 0 {
+		s.fields = []SortField{}
+		s.orderID = 0
+
+		return nil
+	}
+
+	if s.orderID == -1 {
+		s.orderID = InitialSortOrderID // initialize default sort order id
+	}
+
+	return nil
+}
+
+func NewSortOrder(orderID int, fields []SortField) (SortOrder, error) {
+	if orderID == UnsortedSortOrderID && len(fields) == 0 {
+		return SortOrder{}, fmt.Errorf("sort order ID %d is reserved for unsorted order", UnsortedSortOrderID)
+	}
+	if fields == nil {
+		fields = []SortField{}
+	}
+
+	return SortOrder{orderID, fields}, nil
+}
+
 func (s SortOrder) IsUnsorted() bool {
-	return len(s.Fields) == 0
+	return len(s.fields) == 0
 }
 
 func (s SortOrder) Equals(rhs SortOrder) bool {
-	return s.OrderID == rhs.OrderID &&
-		slices.Equal(s.Fields, rhs.Fields)
+	return s.orderID == rhs.orderID &&
+		slices.Equal(s.fields, rhs.fields)
 }
 
 func (s SortOrder) String() string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "%d: ", s.OrderID)
+	fmt.Fprintf(&b, "%d: ", s.orderID)
 	b.WriteByte('[')
-	for i, f := range s.Fields {
+	for i, f := range s.fields {
 		if i == 0 {
 			b.WriteByte('\n')
 		}
@@ -188,28 +255,6 @@ func (s SortOrder) String() string {
 	b.WriteByte(']')
 
 	return b.String()
-}
-
-func (s *SortOrder) UnmarshalJSON(b []byte) error {
-	type Alias SortOrder
-	aux := (*Alias)(s)
-
-	if err := json.Unmarshal(b, aux); err != nil {
-		return err
-	}
-
-	if len(s.Fields) == 0 {
-		s.Fields = []SortField{}
-		s.OrderID = 0
-
-		return nil
-	}
-
-	if s.OrderID == 0 {
-		s.OrderID = InitialSortOrderID // initialize default sort order id
-	}
-
-	return nil
 }
 
 // AssignFreshSortOrderIDs updates and reassigns the field source IDs from the old schema
@@ -226,8 +271,8 @@ func AssignFreshSortOrderIDsWithID(sortOrder SortOrder, old, fresh *iceberg.Sche
 		return UnsortedSortOrder, nil
 	}
 
-	fields := make([]SortField, 0, len(sortOrder.Fields))
-	for _, field := range sortOrder.Fields {
+	fields := make([]SortField, 0, len(sortOrder.fields))
+	for _, field := range sortOrder.fields {
 		originalField, ok := old.FindColumnName(field.SourceID)
 		if !ok {
 			return SortOrder{}, fmt.Errorf("cannot find source column id %s in old schema", field.String())
@@ -245,5 +290,5 @@ func AssignFreshSortOrderIDsWithID(sortOrder SortOrder, old, fresh *iceberg.Sche
 		})
 	}
 
-	return SortOrder{OrderID: sortOrderID, Fields: fields}, nil
+	return SortOrder{orderID: sortOrderID, fields: fields}, nil
 }

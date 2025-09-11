@@ -39,16 +39,21 @@ func schema() iceberg.Schema {
 
 func sortOrder() SortOrder {
 	// TODO: rust has a constructor for SortOrder which checks for compat to schema
-	return SortOrder{
-		OrderID: 1,
-		Fields: []SortField{
+	newSortOrder, err := NewSortOrder(
+		1,
+		[]SortField{
 			{
 				SourceID:  3,
 				Direction: SortDESC,
 				NullOrder: NullsFirst,
 			},
 		},
+	)
+	if err != nil {
+		panic(err)
 	}
+
+	return newSortOrder
 }
 
 func partitionSpec() iceberg.PartitionSpec {
@@ -190,17 +195,16 @@ func TestReassignIds(t *testing.T) {
 
 	require.NoError(t, err)
 
-	sortOrder := SortOrder{
-		OrderID: 10,
-		Fields: []SortField{
-			{
-				SourceID:  11,
-				Transform: iceberg.IdentityTransform{},
-				Direction: SortASC,
-				NullOrder: NullsFirst,
-			},
+	sortOrder, err := NewSortOrder(10, []SortField{
+		{
+			SourceID:  11,
+			Transform: iceberg.IdentityTransform{},
+			Direction: SortASC,
+			NullOrder: NullsFirst,
 		},
-	}
+	})
+	require.NoError(t, err)
+
 	meta, err := NewMetadataBuilderFromPieces(
 		schema,
 		spec,
@@ -252,17 +256,15 @@ func TestReassignIds(t *testing.T) {
 
 	require.NoError(t, err)
 
-	expectedSortOrder := SortOrder{
-		OrderID: 1,
-		Fields: []SortField{
-			{
-				SourceID:  1,
-				Transform: iceberg.IdentityTransform{},
-				Direction: SortASC,
-				NullOrder: NullsFirst,
-			},
+	expectedSortOrder, err := NewSortOrder(1, []SortField{
+		{
+			SourceID:  1,
+			Transform: iceberg.IdentityTransform{},
+			Direction: SortASC,
+			NullOrder: NullsFirst,
 		},
-	}
+	})
+	require.NoError(t, err)
 
 	require.True(t, expectedSchema.Equals(meta.schemaList[0]), cmp.Diff(spew.Sdump(expectedSchema.Fields()), spew.Sdump(meta.schemaList[0].Fields())))
 	require.True(t, expectedSpec.Equals(meta.specs[0]))
