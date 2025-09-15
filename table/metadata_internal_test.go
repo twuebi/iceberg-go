@@ -754,10 +754,10 @@ func TestMetadataBuilderSetDefaultSpecIDLastPartition(t *testing.T) {
 	assert.NoError(t, err)
 
 	partitionSpec := iceberg.NewPartitionSpecID(0)
-	_, err = builder.AddPartitionSpec(&partitionSpec, false)
+	err = builder.AddPartitionSpec(&partitionSpec, false)
 	assert.NoError(t, err)
 
-	_, err = builder.SetDefaultSpecID(-1)
+	err = builder.SetDefaultSpecID(-1)
 	assert.NoError(t, err)
 
 	assert.Equal(t, 0, builder.defaultSpecID)
@@ -766,21 +766,21 @@ func TestMetadataBuilderSetDefaultSpecIDLastPartition(t *testing.T) {
 func TestMetadataBuilderSetLastAddedSchema(t *testing.T) {
 	builder, err := NewMetadataBuilder()
 	assert.NoError(t, err)
-	_, err = builder.SetFormatVersion(2)
+	err = builder.SetFormatVersion(2)
 	assert.NoError(t, err)
 	schema := iceberg.NewSchema(1,
 		iceberg.NestedField{ID: 1, Name: "foo", Type: iceberg.StringType{}, Required: true},
 	)
-	_, err = builder.AddSchema(schema)
+	err = builder.AddSchema(schema)
 	assert.NoError(t, err)
-	_, err = builder.SetCurrentSchemaID(-1)
+	err = builder.SetCurrentSchemaID(-1)
 	assert.NoError(t, err)
 
 	partitionSpec := iceberg.NewPartitionSpecID(0)
-	_, err = builder.AddPartitionSpec(&partitionSpec, false)
+	err = builder.AddPartitionSpec(&partitionSpec, false)
 	assert.NoError(t, err)
 
-	_, err = builder.SetDefaultSpecID(-1)
+	err = builder.SetDefaultSpecID(-1)
 	assert.NoError(t, err)
 
 	meta, err := builder.Build()
@@ -792,24 +792,24 @@ func TestMetadataBuilderSetLastAddedSchema(t *testing.T) {
 func TestMetadataBuilderSchemaIncreasingNumbering(t *testing.T) {
 	builder, err := NewMetadataBuilder()
 	assert.NoError(t, err)
-	_, err = builder.SetFormatVersion(2)
+	err = builder.SetFormatVersion(2)
 	assert.NoError(t, err)
 	schema := iceberg.NewSchema(1,
 		iceberg.NestedField{ID: 1, Name: "foo", Type: iceberg.StringType{}, Required: true},
 	)
-	_, err = builder.AddSchema(schema)
+	err = builder.AddSchema(schema)
 	assert.NoError(t, err)
 
 	schema = iceberg.NewSchema(3,
 		iceberg.NestedField{ID: 3, Name: "foo", Type: iceberg.StringType{}, Required: true},
 	)
-	_, err = builder.AddSchema(schema)
+	err = builder.AddSchema(schema)
 	assert.NoError(t, err)
 
 	schema = iceberg.NewSchema(2,
 		iceberg.NestedField{ID: 4, Name: "foo", Type: iceberg.StringType{}, Required: true},
 	)
-	_, err = builder.AddSchema(schema)
+	err = builder.AddSchema(schema)
 	assert.NoError(t, err)
 
 	assert.Equal(t, 1, builder.schemaList[0].ID)
@@ -823,12 +823,12 @@ func TestMetadataBuilderReuseSchema(t *testing.T) {
 	schema := iceberg.NewSchema(1,
 		iceberg.NestedField{ID: 1, Name: "foo", Type: iceberg.StringType{}, Required: true},
 	)
-	_, err = builder.AddSchema(schema)
+	err = builder.AddSchema(schema)
 	assert.NoError(t, err)
 	schema2 := iceberg.NewSchema(15,
 		iceberg.NestedField{ID: 1, Name: "foo", Type: iceberg.StringType{}, Required: true},
 	)
-	_, err = builder.AddSchema(schema2)
+	err = builder.AddSchema(schema2)
 	assert.NoError(t, err)
 	assert.Equal(t, len(builder.schemaList), 1)
 	assert.Equal(t, *builder.lastAddedSchemaID, 1)
