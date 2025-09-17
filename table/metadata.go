@@ -37,6 +37,7 @@ import (
 const (
 	partitionFieldStartID       = 1000
 	supportedTableFormatVersion = 2
+	oneMinuteInMs               = 60_000
 )
 
 func generateSnapshotID() int64 {
@@ -322,6 +323,11 @@ func (b *MetadataBuilder) AddPartitionSpec(spec *iceberg.PartitionSpec, initial 
 		return err
 	}
 
+	// Validate field names against all schemas
+	if err := b.validatePartitionFieldNames(&freshSpec); err != nil {
+		return err
+	}
+
 	spec = nil
 	if _, err := b.GetSpecByID(newSpecID); err == nil {
 		if b.lastAddedPartitionID == nil || *b.lastAddedPartitionID != newSpecID {
@@ -385,6 +391,19 @@ func (b *MetadataBuilder) AddSnapshot(snapshot *Snapshot) error {
 			snapshot.SequenceNumber, *b.lastSequenceNumber)
 	}
 
+	if len(b.snapshotLog) > 0 {
+		last := b.snapshotLog[len(b.snapshotLog)-1]
+		if (snapshot.TimestampMs - last.TimestampMs) < -oneMinuteInMs {
+			return fmt.Errorf("invalid snapshot timestamp %d: before last snapshot timestamp %d",
+				snapshot.TimestampMs, last.TimestampMs)
+		}
+	}
+	maxTS := max(b.lastUpdatedMS, b.base.LastUpdatedMillis())
+	if snapshot.TimestampMs-maxTS < -oneMinuteInMs {
+		return fmt.Errorf("invalid snapshot timestamp %d: before last updated timestamp %d",
+			snapshot.TimestampMs, maxTS)
+	}
+
 	b.updates = append(b.updates, NewAddSnapshotUpdate(snapshot))
 	b.lastUpdatedMS = snapshot.TimestampMs
 	b.lastSequenceNumber = &snapshot.SequenceNumber
@@ -404,6 +423,14 @@ func (b *MetadataBuilder) RemoveSnapshots(snapshotIds []int64) error {
 	b.snapshotLog = slices.DeleteFunc(b.snapshotLog, func(e SnapshotLogEntry) bool {
 		return slices.Contains(snapshotIds, e.SnapshotID)
 	})
+
+	newRefs := make(map[string]SnapshotRef)
+	for name, ref := range b.refs {
+		if _, err := b.SnapshotByID(ref.SnapshotID); err == nil {
+			newRefs[name] = ref
+		}
+	}
+
 	b.updates = append(b.updates, NewRemoveSnapshotsUpdate(snapshotIds))
 
 	return nil
@@ -1063,6 +1090,44 @@ func (b *MetadataBuilder) RemoveSchemas(ints []int) error {
 	return nil
 }
 
+// nameExistsInAnySchema checks if a field name exists in any of the table's schemas
+// Returns the field and schema ID if found, or nil and -1 if not found
+func (b *MetadataBuilder) nameExistsInAnySchema(name string) (iceberg.NestedField, int, bool) {
+	for _, schema := range b.schemaList {
+		if field, found := schema.FindFieldByName(name); found {
+			return field, schema.ID, true
+		}
+	}
+
+	return iceberg.NestedField{}, -1, false
+}
+
+// validatePartitionFieldNames validates that partition field names don't conflict with schema field names
+// Allows identity transforms to use the same name as their source field
+func (b *MetadataBuilder) validatePartitionFieldNames(spec *iceberg.PartitionSpec) error {
+	for field := range spec.Fields() {
+		// Check if field name exists in any schema
+		if schemaField, schemaID, found := b.nameExistsInAnySchema(field.Name); found {
+			// Check if it's an identity transform
+			_, isIdentity := field.Transform.(iceberg.IdentityTransform)
+
+			if !isIdentity {
+				// Non-identity transforms cannot have names that conflict with schema fields
+				return fmt.Errorf("partition field name '%s' conflicts with field in schema %d",
+					field.Name, schemaID)
+			}
+
+			// For identity transform, the source ID must match the schema field ID
+			if field.SourceID != schemaField.ID {
+				return fmt.Errorf("identity partition field '%s' must source from schema field %d, not %d",
+					field.Name, schemaField.ID, field.SourceID)
+			}
+		}
+	}
+
+	return nil
+}
+
 // maxBy returns the maximum value of extract(e) for all e in elems.
 // If elems is empty, returns 0.
 func maxBy[S ~[]E, E any](elems S, extract func(e E) int) int {
@@ -1395,6 +1460,14 @@ func (c *commonMetadata) validate() error {
 		}
 	}
 
+	if err := c.validateChronologicalSnapshotLogs(); err != nil {
+		return err
+	}
+
+	if err := c.validateChronologicalMetadataLogs(); err != nil {
+		return err
+	}
+
 	if err := c.checkSchemas(); err != nil {
 		return err
 	}
@@ -1457,6 +1530,38 @@ func (c *commonMetadata) checkRefsExist() error {
 		if snap == nil {
 			return fmt.Errorf("%w: snapshot ref %s with ID %d does not exist in snapshot list",
 				ErrInvalidMetadata, name, ref.SnapshotID)
+		}
+	}
+
+	return nil
+}
+
+func (c *commonMetadata) validateChronologicalSnapshotLogs() error {
+	for i := 1; i < len(c.SnapshotLog); i++ {
+		prev, cur := c.SnapshotLog[i-1], c.SnapshotLog[i]
+		if (cur.TimestampMs - prev.TimestampMs) < -oneMinuteInMs {
+			return fmt.Errorf("%w: expected sorted snapshot log entries", ErrInvalidMetadata)
+		}
+		if i == len(c.SnapshotLog)-1 {
+			if c.LastUpdatedMS-cur.TimestampMs < -oneMinuteInMs {
+				return fmt.Errorf("%w: invalid update timestamp %d: before last snapshot log entry at %d", ErrInvalidMetadata, c.LastUpdatedMS, cur.TimestampMs)
+			}
+		}
+	}
+
+	return nil
+}
+
+func (c *commonMetadata) validateChronologicalMetadataLogs() error {
+	for i := 1; i < len(c.MetadataLog); i++ {
+		prev, cur := c.MetadataLog[i-1], c.MetadataLog[i]
+		if (cur.TimestampMs - prev.TimestampMs) < -oneMinuteInMs {
+			return fmt.Errorf("%w: expected sorted metadata log entries", ErrInvalidMetadata)
+		}
+		if i == len(c.MetadataLog)-1 {
+			if c.LastUpdatedMS-cur.TimestampMs < -oneMinuteInMs {
+				return fmt.Errorf("%w: invalid update timestamp %d: before last metadata log entry at %d", ErrInvalidMetadata, c.LastUpdatedMS, cur.TimestampMs)
+			}
 		}
 	}
 
