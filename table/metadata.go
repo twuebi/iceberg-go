@@ -304,6 +304,11 @@ func (b *MetadataBuilder) AddSchema(schema *iceberg.Schema) error {
 		return nil
 	}
 
+	// Validate that new schema fields don't conflict with partition field names
+	if err := b.validateSchemaFieldNames(schema); err != nil {
+		return err
+	}
+
 	b.lastColumnId = max(b.lastColumnId, schema.HighestFieldID())
 
 	schema.ID = newSchemaID
@@ -1090,42 +1095,24 @@ func (b *MetadataBuilder) RemoveSchemas(ints []int) error {
 	return nil
 }
 
-// nameExistsInAnySchema checks if a field name exists in any of the table's schemas
-// Returns the field and schema ID if found, or nil and -1 if not found
-func (b *MetadataBuilder) nameExistsInAnySchema(name string) (iceberg.NestedField, int, bool) {
-	for _, schema := range b.schemaList {
-		if field, found := schema.FindFieldByName(name); found {
-			return field, schema.ID, true
-		}
-	}
+// findSchemaFieldByName finds a field by name across all schemas
+// Returns the field and its schema if found, nil otherwise
+func (b *MetadataBuilder) findSchemaFieldByName(name string) error {
+	return errors.New("not implemented")
 
-	return iceberg.NestedField{}, -1, false
 }
 
 // validatePartitionFieldNames validates that partition field names don't conflict with schema field names
 // Allows identity transforms to use the same name as their source field
 func (b *MetadataBuilder) validatePartitionFieldNames(spec *iceberg.PartitionSpec) error {
-	for field := range spec.Fields() {
-		// Check if field name exists in any schema
-		if schemaField, schemaID, found := b.nameExistsInAnySchema(field.Name); found {
-			// Check if it's an identity transform
-			_, isIdentity := field.Transform.(iceberg.IdentityTransform)
+	return errors.New("not implemented")
 
-			if !isIdentity {
-				// Non-identity transforms cannot have names that conflict with schema fields
-				return fmt.Errorf("partition field name '%s' conflicts with field in schema %d",
-					field.Name, schemaID)
-			}
+}
 
-			// For identity transform, the source ID must match the schema field ID
-			if field.SourceID != schemaField.ID {
-				return fmt.Errorf("identity partition field '%s' must source from schema field %d, not %d",
-					field.Name, schemaField.ID, field.SourceID)
-			}
-		}
-	}
-
-	return nil
+// validateSchemaFieldNames validates that new schema field names don't conflict with partition field names
+// unless the field already exists in a historical schema
+func (b *MetadataBuilder) validateSchemaFieldNames(newSchema *iceberg.Schema) error {
+	return errors.New("not implemented")
 }
 
 // maxBy returns the maximum value of extract(e) for all e in elems.
