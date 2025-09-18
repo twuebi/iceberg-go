@@ -433,7 +433,7 @@ func TestSetRef(t *testing.T) {
 		SnapshotID:       1,
 		ParentSnapshotID: nil,
 		SequenceNumber:   0,
-		TimestampMs:      builder.lastUpdatedMS + 1,
+		TimestampMs:      builder.base.LastUpdatedMillis() + 1,
 		ManifestList:     "/snap-1.avro",
 		Summary: &Summary{
 			Operation: OpAppend,
@@ -483,7 +483,7 @@ func TestSnapshotLogSkipsIntermediate(t *testing.T) {
 		SnapshotID:       1,
 		ParentSnapshotID: nil,
 		SequenceNumber:   0,
-		TimestampMs:      builder.lastUpdatedMS + 1,
+		TimestampMs:      builder.base.LastUpdatedMillis() + 1,
 		ManifestList:     "/snap-1.avro",
 		Summary: &Summary{
 			Operation: OpAppend,
@@ -547,7 +547,7 @@ func TestSetBranchSnapshotCreatesBranchIfNotExists(t *testing.T) {
 		SnapshotID:       2,
 		ParentSnapshotID: nil,
 		SequenceNumber:   0,
-		TimestampMs:      builder.lastUpdatedMS + 1,
+		TimestampMs:      builder.base.LastUpdatedMillis() + 1,
 		ManifestList:     "/snap-1.avro",
 		Summary: &Summary{
 			Operation: OpAppend,
@@ -587,7 +587,7 @@ func TestCannotAddDuplicateSnapshotID(t *testing.T) {
 		SnapshotID:       2,
 		ParentSnapshotID: nil,
 		SequenceNumber:   0,
-		TimestampMs:      builder.lastUpdatedMS + 1,
+		TimestampMs:      builder.base.LastUpdatedMillis() + 1,
 		ManifestList:     "/snap-1.avro",
 		Summary: &Summary{
 			Operation: OpAppend,
