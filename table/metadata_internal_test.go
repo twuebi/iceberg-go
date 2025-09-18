@@ -752,7 +752,9 @@ func TestMetadataV2Serialize(t *testing.T) {
 func TestMetadataBuilderSetDefaultSpecIDLastPartition(t *testing.T) {
 	builder, err := NewMetadataBuilder()
 	assert.NoError(t, err)
-
+	schema := schema()
+	assert.NoError(t, builder.AddSchema(&schema))
+	assert.NoError(t, builder.SetCurrentSchemaID(-1))
 	partitionSpec := iceberg.NewPartitionSpecID(0)
 	assert.NoError(t, builder.AddPartitionSpec(&partitionSpec, false))
 
@@ -981,6 +983,36 @@ func TestDefaultPartitionSpec(t *testing.T) {
 	meta.(*metadataV2).Specs = append(meta.(*metadataV2).Specs, spec)
 	partitionSpec := meta.PartitionSpec()
 	require.Equal(t, partitionSpec.ID(), defaultSpecID)
+}
+
+func TestTableMetadataV1SchemasWithoutCurrentId(t *testing.T) {
+	meta, err := getTestTableMetadata("TableMetadataV1SchemasWithoutCurrentId.json")
+	require.NoError(t, err)
+	require.Equal(t, meta.(*metadataV1).Version(), 1)
+	require.Equal(t, meta.TableUUID(), uuid.MustParse("d20125c8-7284-442c-9aea-15fee620737c"))
+	schema := meta.CurrentSchema()
+	require.Equal(t, len(schema.Fields()), 3)
+	require.Equal(t, schema.Fields()[0].Name, "x")
+	require.Equal(t, schema.Fields()[1].Name, "y")
+	require.Equal(t, schema.Fields()[2].Name, "z")
+}
+
+func TestTableMetadataV1NoValidSchema(t *testing.T) {
+	meta, err := getTestTableMetadata("TableMetadataV1NoValidSchema.json")
+	require.ErrorContains(t, err, "invalid metadata: no valid schema configuration found in table metadata")
+	require.Nil(t, meta)
+}
+
+func TestTableMetadataV2SchemaNotFound(t *testing.T) {
+	meta, err := getTestTableMetadata("TableMetadataV2CurrentSchemaNotFound.json")
+	require.ErrorContains(t, err, "invalid metadata: current-schema-id 2 can't be found in any schema")
+	require.Nil(t, meta)
+}
+
+func TestTableMetadataV2MissingSchemas(t *testing.T) {
+	meta, err := getTestTableMetadata("TableMetadataV2MissingSchemas.json")
+	require.ErrorContains(t, err, "invalid metadata: no valid schema configuration found in table metadata")
+	require.Nil(t, meta)
 }
 
 func TestTableDataV2NoSnapshots(t *testing.T) {
@@ -1874,44 +1906,8 @@ func TestTableMetadataV1Compat(t *testing.T) {
 	require.Equal(t, meta.CurrentSchema().ID, 0)
 }
 
-func TestTableMetadataV1SchemasWithoutCurrentId(t *testing.T) {
-	meta, err := getTestTableMetadata("TableMetadataV1SchemasWithoutCurrentId.json")
-	require.NoError(t, err)
-	require.Equal(t, meta.(*metadataV1).Version(), 1)
-	require.Equal(t, meta.TableUUID(), uuid.MustParse("d20125c8-7284-442c-9aea-15fee620737c"))
-	schema := meta.CurrentSchema()
-	require.Equal(t, len(schema.Fields()), 3)
-	require.Equal(t, schema.Fields()[0].Name, "x")
-	require.Equal(t, schema.Fields()[1].Name, "y")
-	require.Equal(t, schema.Fields()[2].Name, "z")
-}
-
-func TestTableMetadataV1NoValidSchema(t *testing.T) {
-	// Failing since Go's lack of an Option type means it will just put a 0 for the missing currentSchemaID
-	// which, well, looks just like a valid schema ID. Would need to make it a pointer, but that would, of
-	// course, suck when trying to use the metadata. So the ideal solution is likely to have a separate metadata
-	// type for deserialization which has all fields nullable and then convert it to the actual metadata type.
-	meta, err := getTestTableMetadata("TableMetadataV1NoValidSchema.json")
-	require.ErrorContains(t, err, "invalid metadata: no valid schema configuration found in table metadata")
-	require.Nil(t, meta)
-}
-
-func TestTableMetadataV2SchemaNotFound(t *testing.T) {
-	meta, err := getTestTableMetadata("TableMetadataV2CurrentSchemaNotFound.json")
-	require.Error(t, err)
-	require.Nil(t, meta)
-	// TODO: check for specific error
-}
-
 func TestTableMetadataV2MissingSortOrder(t *testing.T) {
 	meta, err := getTestTableMetadata("TableMetadataV2CurrentSchemaMissingSortOrder.json")
-	require.Error(t, err)
-	require.Nil(t, meta)
-	// TODO: check for specific error
-}
-
-func TestTableMetadataV2MissingSchemas(t *testing.T) {
-	meta, err := getTestTableMetadata("TableMetadataV2MissingSchemas.json")
 	require.Error(t, err)
 	require.Nil(t, meta)
 	// TODO: check for specific error

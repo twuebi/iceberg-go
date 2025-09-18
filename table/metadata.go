@@ -319,8 +319,12 @@ func (b *MetadataBuilder) AddSchema(schema *iceberg.Schema) error {
 
 func (b *MetadataBuilder) AddPartitionSpec(spec *iceberg.PartitionSpec, initial bool) error {
 	newSpecID := b.reuseOrCreateNewPartitionSpecID(*spec)
+	curSchema := b.CurrentSchema()
+	if curSchema == nil {
+		return errors.New("can't add sort order with no current schema")
+	}
 
-	freshSpec, err := spec.BindToSchema(b.CurrentSchema(), b.lastPartitionID, &newSpecID, false)
+	freshSpec, err := spec.BindToSchema(curSchema, b.lastPartitionID, &newSpecID)
 	if err != nil {
 		return err
 	}
@@ -434,6 +438,11 @@ func (b *MetadataBuilder) RemoveSnapshots(snapshotIds []int64) error {
 }
 
 func (b *MetadataBuilder) AddSortOrder(sortOrder *SortOrder) error {
+	curSchema := b.CurrentSchema()
+	if curSchema == nil {
+		return errors.New("can't add sort order with no current schema")
+	}
+
 	newOrderID := b.reuseOrCreateNewSortOrderID(sortOrder)
 	if _, err := b.GetSortOrderByID(newOrderID); err == nil {
 		if b.lastAddedSortOrderID != &newOrderID {
@@ -447,10 +456,6 @@ func (b *MetadataBuilder) AddSortOrder(sortOrder *SortOrder) error {
 	sortOrder.orderID = newOrderID
 
 	sortOrders := b.sortOrderList
-	curSchema := b.CurrentSchema()
-	if curSchema == nil {
-		return errors.New("can't add sort order with no current schema")
-	}
 	if err := sortOrder.CheckCompatibility(curSchema); err != nil {
 		return fmt.Errorf("sort order %s is not compatible with current schema: %w", sortOrder, err)
 	}
@@ -1070,22 +1075,20 @@ func (b *MetadataBuilder) RemoveSchemas(ints []int) error {
 		return fmt.Errorf("can't remove current schema with id %d", b.currentSchemaID)
 	}
 
-	newSchemas := make([]*iceberg.Schema, 0, len(b.schemaList)-len(ints))
 	removed := make([]int, len(ints))
-	for _, schema := range b.schemaList {
-		if slices.Contains(ints, schema.ID) {
-			removed = append(removed, schema.ID)
+	b.schemaList = slices.DeleteFunc(b.schemaList, func(s *iceberg.Schema) bool {
+		if slices.Contains(ints, s.ID) {
+			removed = append(removed, s.ID)
 
-			continue
+			return true
 		}
-		newSchemas = append(newSchemas, schema)
-	}
+
+		return false
+	})
 
 	if len(removed) != 0 {
 		b.updates = append(b.updates, NewRemoveSchemasUpdate(ints))
 	}
-
-	b.schemaList = newSchemas
 
 	return nil
 }
@@ -1768,6 +1771,10 @@ func NewMetadataWithUUID(sc *iceberg.Schema, partitions *iceberg.PartitionSpec, 
 	}
 
 	if err = builder.AddPartitionSpec(reassignedIds.partitionSpec, true); err != nil {
+		return nil, err
+	}
+
+	if err = builder.SetDefaultSpecID(-1); err != nil {
 		return nil, err
 	}
 

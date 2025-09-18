@@ -150,28 +150,6 @@ func (s SortOrder) Len() int {
 	return len(s.fields)
 }
 
-func (s *SortOrder) CheckCompatibility(schema *iceberg.Schema) error {
-	if s == nil {
-		return nil
-	}
-
-	for _, field := range s.fields {
-		f, ok := schema.FindFieldByID(field.SourceID)
-		if !ok {
-			return fmt.Errorf("sort field with source id %d not found in schema", field.SourceID)
-		}
-
-		if _, ok := f.Type.(iceberg.PrimitiveType); !ok {
-			return fmt.Errorf("cannot sort by non-primitive source field: %s", f.Type.Type())
-		}
-		if !field.Transform.CanTransform(f.Type) {
-			return fmt.Errorf("invalid source type %s for transform %s", f.Type.Type(), field.Transform)
-		}
-	}
-
-	return nil
-}
-
 func (s SortOrder) MarshalJSON() ([]byte, error) {
 	type Alias struct {
 		OrderID int         `json:"order-id"`
@@ -224,6 +202,30 @@ func NewSortOrder(orderID int, fields []SortField) (SortOrder, error) {
 
 func (s SortOrder) IsUnsorted() bool {
 	return len(s.fields) == 0
+}
+
+func (s *SortOrder) CheckCompatibility(schema *iceberg.Schema) error {
+	if s == nil {
+		return nil
+	}
+
+	for _, field := range s.fields {
+		f, ok := schema.FindFieldByID(field.SourceID)
+		if !ok {
+			return fmt.Errorf("sort field with source id %d not found in schema", field.SourceID)
+		}
+
+		if _, ok := f.Type.(iceberg.PrimitiveType); !ok {
+			return fmt.Errorf("cannot sort by non-primitive source field: %s", f.Type.Type())
+		}
+
+		// FIXME: field.Transform should be made required
+		if field.Transform != nil && !field.Transform.CanTransform(f.Type) {
+			return fmt.Errorf("invalid source type %s for transform %s", f.Type.Type(), field.Transform)
+		}
+	}
+
+	return nil
 }
 
 func (s SortOrder) Equals(rhs SortOrder) bool {

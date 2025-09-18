@@ -95,6 +95,12 @@ func builderWithoutChanges(formatVersion int) MetadataBuilder {
 	if err = builder.SetDefaultSortOrderID(-1); err != nil {
 		panic(err)
 	}
+	if err = builder.AddSortOrder(&sortOrder); err != nil {
+		panic(err)
+	}
+	if err = builder.SetDefaultSortOrderID(-1); err != nil {
+		panic(err)
+	}
 	if err = builder.AddPartitionSpec(&partitionSpec, true); err != nil {
 		panic(err)
 	}
@@ -612,17 +618,6 @@ func TestCannotAddDuplicateSnapshotID(t *testing.T) {
 	require.ErrorContains(t, err, "can't add snapshot with id 2, already exists")
 }
 
-func TestAddIncompatibleCurrentSchemaFails(t *testing.T) {
-	builder := builderWithoutChanges(2)
-	addedSchema := iceberg.NewSchema(1)
-	err := builder.AddSchema(addedSchema)
-	require.NoError(t, err)
-	err = builder.SetCurrentSchemaID(1)
-	require.NoError(t, err)
-	_, err = builder.Build()
-	require.ErrorContains(t, err, "with source id 3 not found in schema")
-}
-
 func TestExpireMetadataLog(t *testing.T) {
 	builder1 := builderWithoutChanges(2)
 	meta, err := builder1.Build()
@@ -799,6 +794,17 @@ func TestConstructDefaultMainBranch(t *testing.T) {
 	require.NotNil(t, meta)
 
 	require.Equal(t, meta.(*metadataV2).SnapshotRefs[MainBranch].SnapshotID, meta.CurrentSnapshot().SnapshotID)
+}
+
+func TestAddIncompatibleCurrentSchemaFails(t *testing.T) {
+	builder := builderWithoutChanges(2)
+	addedSchema := iceberg.NewSchema(1)
+	err := builder.AddSchema(addedSchema)
+	require.NoError(t, err)
+	err = builder.SetCurrentSchemaID(1)
+	require.NoError(t, err)
+	_, err = builder.Build()
+	require.ErrorContains(t, err, "with source id 3 not found in schema")
 }
 
 func TestRemoveMainSnapshotRef(t *testing.T) {
