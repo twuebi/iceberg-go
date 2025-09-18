@@ -447,8 +447,11 @@ func (b *MetadataBuilder) AddSortOrder(sortOrder *SortOrder) error {
 	sortOrder.orderID = newOrderID
 
 	sortOrders := b.sortOrderList
-
-	if err := sortOrder.CheckCompatibility(b.CurrentSchema()); err != nil {
+	curSchema := b.CurrentSchema()
+	if curSchema == nil {
+		return errors.New("can't add sort order with no current schema")
+	}
+	if err := sortOrder.CheckCompatibility(curSchema); err != nil {
 		return fmt.Errorf("sort order %s is not compatible with current schema: %w", sortOrder, err)
 	}
 

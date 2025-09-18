@@ -83,13 +83,13 @@ func builderWithoutChanges(formatVersion int) MetadataBuilder {
 	if err = builder.SetFormatVersion(formatVersion); err != nil {
 		panic(err)
 	}
-	if err = builder.AddSortOrder(&sortOrder); err != nil {
-		panic(err)
-	}
 	if err = builder.AddSchema(&tableSchema); err != nil {
 		panic(err)
 	}
 	if err = builder.SetCurrentSchemaID(-1); err != nil {
+		panic(err)
+	}
+	if err = builder.AddSortOrder(&sortOrder); err != nil {
 		panic(err)
 	}
 	if err = builder.AddPartitionSpec(&partitionSpec, true); err != nil {
