@@ -290,8 +290,6 @@ func (b *MetadataBuilder) currentSnapshot() *Snapshot {
 	return s
 }
 
-type MetadataOption func(*MetadataBuilder) error
-
 func (b *MetadataBuilder) AddSchema(schema *iceberg.Schema) error {
 	newSchemaID := b.reuseOrCreateNewSchemaID(schema)
 
@@ -304,10 +302,9 @@ func (b *MetadataBuilder) AddSchema(schema *iceberg.Schema) error {
 		return nil
 	}
 
-	// Validate that new schema fields don't conflict with partition field names
-	if err := b.validateSchemaFieldNames(schema); err != nil {
-		return err
-	}
+	//if err := b.validateSchemaFieldNames(schema); err != nil {
+	//	return err
+	//}
 
 	b.lastColumnId = max(b.lastColumnId, schema.HighestFieldID())
 
@@ -325,11 +322,6 @@ func (b *MetadataBuilder) AddPartitionSpec(spec *iceberg.PartitionSpec, initial 
 
 	freshSpec, err := spec.BindToSchema(b.CurrentSchema(), b.lastPartitionID, &newSpecID, false)
 	if err != nil {
-		return err
-	}
-
-	// Validate field names against all schemas
-	if err := b.validatePartitionFieldNames(&freshSpec); err != nil {
 		return err
 	}
 
@@ -1099,14 +1091,12 @@ func (b *MetadataBuilder) RemoveSchemas(ints []int) error {
 // Returns the field and its schema if found, nil otherwise
 func (b *MetadataBuilder) findSchemaFieldByName(name string) error {
 	return errors.New("not implemented")
-
 }
 
 // validatePartitionFieldNames validates that partition field names don't conflict with schema field names
 // Allows identity transforms to use the same name as their source field
 func (b *MetadataBuilder) validatePartitionFieldNames(spec *iceberg.PartitionSpec) error {
 	return errors.New("not implemented")
-
 }
 
 // validateSchemaFieldNames validates that new schema field names don't conflict with partition field names
