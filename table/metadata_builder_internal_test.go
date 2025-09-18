@@ -92,7 +92,13 @@ func builderWithoutChanges(formatVersion int) MetadataBuilder {
 	if err = builder.AddSortOrder(&sortOrder); err != nil {
 		panic(err)
 	}
+	if err = builder.SetDefaultSortOrderID(-1); err != nil {
+		panic(err)
+	}
 	if err = builder.AddPartitionSpec(&partitionSpec, true); err != nil {
+		panic(err)
+	}
+	if err = builder.SetDefaultSpecID(-1); err != nil {
 		panic(err)
 	}
 
@@ -501,7 +507,7 @@ func TestSnapshotLogSkipsIntermediate(t *testing.T) {
 		SnapshotID:       2,
 		ParentSnapshotID: nil,
 		SequenceNumber:   0,
-		TimestampMs:      builder.lastUpdatedMS + 1,
+		TimestampMs:      builder.base.LastUpdatedMillis() + 2,
 		ManifestList:     "/snap-1.avro",
 		Summary: &Summary{
 			Operation: OpAppend,
@@ -661,7 +667,7 @@ func TestV2SequenceNumberCannotDecrease(t *testing.T) {
 		SnapshotID:       1,
 		ParentSnapshotID: nil,
 		SequenceNumber:   1,
-		TimestampMs:      builder.lastUpdatedMS + 1,
+		TimestampMs:      builder.base.LastUpdatedMillis() + 1,
 		ManifestList:     "/snap-1.avro",
 		Summary: &Summary{
 			Operation:  OpAppend,
