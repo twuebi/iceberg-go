@@ -241,7 +241,12 @@ func (p parquetFormat) WriteDataFile(ctx context.Context, fs iceio.WriteFileIO, 
 	if err != nil {
 		return nil, err
 	}
-	defer fw.Close()
+	defer func(fw iceio.FileWriter) {
+		err := fw.Close()
+		if err != nil {
+			fmt.Printf("error closing file: %v", err)
+		}
+	}(fw)
 
 	cntWriter := internal.CountingWriter{W: fw}
 	mem := compute.GetAllocator(ctx)
