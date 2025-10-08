@@ -490,6 +490,7 @@ type SchemaVisitorPerPrimitiveType[T any] interface {
 	VisitTimestampNs() T
 	VisitTimestampTz() T
 	VisitTimestampNsTz() T
+	VisitUnknown() T
 	VisitString() T
 	VisitBinary() T
 	VisitUUID() T
@@ -627,6 +628,8 @@ func visitField[T any](f NestedField, visitor SchemaVisitor[T]) T {
 				return perPrimitive.VisitTimestampTz()
 			case TimestampTzNsType:
 				return perPrimitive.VisitTimestampNsTz()
+			case UnknownType:
+				return perPrimitive.VisitUnknown()
 			case StringType:
 				return perPrimitive.VisitString()
 			case BinaryType:

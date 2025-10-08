@@ -131,6 +131,8 @@ func (t *typeIFace) UnmarshalJSON(b []byte) error {
 			t.Type = UUIDType{}
 		case "binary":
 			t.Type = BinaryType{}
+		case "unknown":
+			t.Type = UnknownType{}
 		default:
 			switch {
 			case strings.HasPrefix(typename, "fixed"):
@@ -677,6 +679,18 @@ func (StringType) primitive()     {}
 func (StringType) Type() string   { return "string" }
 func (StringType) String() string { return "string" }
 
+type UnknownType struct{}
+
+func (UnknownType) Equals(other Type) bool {
+	_, ok := other.(UnknownType)
+
+	return ok
+}
+
+func (UnknownType) primitive()     {}
+func (UnknownType) Type() string   { return "unknown" }
+func (UnknownType) String() string { return "unknown" }
+
 type UUIDType struct{}
 
 func (UUIDType) Equals(other Type) bool {
@@ -741,6 +755,7 @@ var PrimitiveTypes = struct {
 	TimestampTz   PrimitiveType
 	TimestampNs   PrimitiveType
 	TimestampTzNs PrimitiveType
+	Unknown       PrimitiveType
 	String        PrimitiveType
 	Binary        PrimitiveType
 	UUID          PrimitiveType
@@ -756,6 +771,7 @@ var PrimitiveTypes = struct {
 	TimestampTz:   TimestampTzType{},
 	TimestampNs:   TimestampNsType{},
 	TimestampTzNs: TimestampTzNsType{},
+	Unknown:       UnknownType{},
 	String:        StringType{},
 	Binary:        BinaryType{},
 	UUID:          UUIDType{},
@@ -766,7 +782,7 @@ var PrimitiveTypes = struct {
 // version number for types that require newer format versions.
 func MinFormatVersionForType(t Type) int {
 	switch t.(type) {
-	case TimestampNsType, TimestampTzNsType:
+	case TimestampNsType, TimestampTzNsType, UnknownType:
 		return 3
 	default:
 		// All other types supported in v1+

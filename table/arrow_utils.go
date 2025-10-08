@@ -596,6 +596,10 @@ func (c convertToArrow) VisitTimestampNsTz() arrow.Field {
 	return arrow.Field{Type: arrow.FixedWidthTypes.Timestamp_ns}
 }
 
+func (c convertToArrow) VisitUnknown() arrow.Field {
+	return arrow.Field{Type: arrow.Null}
+}
+
 func (c convertToArrow) VisitString() arrow.Field {
 	if c.useLargeTypes {
 		return arrow.Field{Type: arrow.BinaryTypes.LargeString}
