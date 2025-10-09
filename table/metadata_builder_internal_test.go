@@ -1205,6 +1205,7 @@ func TestUnsupportedTypes(t *testing.T) {
 	TEST_TYPES := []iceberg.Type{
 		iceberg.TimestampNsType{},
 		iceberg.TimestampTzNsType{},
+		// no unknown type here since that has some special handling
 	}
 	for _, typ := range TEST_TYPES {
 		for unsupportedVersion := 1; unsupportedVersion < iceberg.MinFormatVersionForType(typ); unsupportedVersion++ {
@@ -1275,4 +1276,147 @@ func generateTypeSchema(typ iceberg.Type) *iceberg.Schema {
 	)
 
 	return sc
+}
+
+// TestUnknownTypeValidation tests various validation rules for UnknownType
+func TestUnknownTypeValidation(t *testing.T) {
+	tests := []struct {
+		name        string
+		schema      *iceberg.Schema
+		version     int
+		shouldError bool
+		errorMsg    string
+	}{
+		{
+			name: "required field rejected",
+			schema: iceberg.NewSchema(0,
+				iceberg.NestedField{
+					Type: iceberg.UnknownType{}, ID: 1, Name: "required_unknown", Required: true,
+				},
+			),
+			version:     3,
+			shouldError: true,
+			errorMsg:    "cannot create required field with unknown type: required_unknown",
+		},
+		{
+			name: "non-null initial-default rejected",
+			schema: iceberg.NewSchema(0,
+				iceberg.NestedField{
+					Type:           iceberg.UnknownType{},
+					ID:             1,
+					Name:           "unknown_field",
+					Required:       false,
+					InitialDefault: "some_value",
+				},
+			),
+			version:     3,
+			shouldError: true,
+			errorMsg:    "cannot set non-null initial-default for unknown type field: unknown_field",
+		},
+		{
+			name: "non-null write-default rejected",
+			schema: iceberg.NewSchema(0,
+				iceberg.NestedField{
+					Type:         iceberg.UnknownType{},
+					ID:           1,
+					Name:         "unknown_field",
+					Required:     false,
+					WriteDefault: 123,
+				},
+			),
+			version:     3,
+			shouldError: true,
+			errorMsg:    "cannot set non-null write-default for unknown type field: unknown_field",
+		},
+		{
+			name: "optional field with nil defaults allowed",
+			schema: iceberg.NewSchema(0,
+				iceberg.NestedField{
+					Type: iceberg.Int64Type{}, ID: 1, Name: "id", Required: true,
+				},
+				iceberg.NestedField{
+					Type: iceberg.UnknownType{}, ID: 2, Name: "unknown_field", Required: false,
+				},
+			),
+			version:     3,
+			shouldError: false,
+		},
+		{
+			name: "nested required field rejected",
+			schema: iceberg.NewSchema(0,
+				iceberg.NestedField{
+					Type: &iceberg.StructType{
+						FieldList: []iceberg.NestedField{
+							{
+								Type:     iceberg.UnknownType{},
+								ID:       2,
+								Name:     "nested_unknown",
+								Required: true,
+							},
+						},
+					},
+					ID:   1,
+					Name: "struct_field",
+				},
+			),
+			version:     3,
+			shouldError: true,
+			errorMsg:    "cannot create required field with unknown type: struct_field.nested_unknown",
+		},
+		{
+			name: "multiple violations reported",
+			schema: iceberg.NewSchema(0,
+				iceberg.NestedField{
+					Type:           iceberg.UnknownType{},
+					ID:             1,
+					Name:           "bad_unknown",
+					Required:       true,
+					InitialDefault: "value",
+					WriteDefault:   "another_value",
+				},
+			),
+			version:     3,
+			shouldError: true,
+			errorMsg:    "cannot create required field with unknown type",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := checkSchemaCompatibility(tt.schema, tt.version)
+			if tt.shouldError {
+				require.Error(t, err)
+				require.ErrorContains(t, err, tt.errorMsg)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
+// TestAddSchemaWithUnknownTypeToV2TableRejected tests that adding UnknownType schema to V2 table is rejected
+func TestAddSchemaWithUnknownTypeToV2TableRejected(t *testing.T) {
+	builder, err := NewMetadataBuilder(2)
+	require.NoError(t, err)
+
+	// Add a valid V2 schema first
+	baseSchema := iceberg.NewSchema(0,
+		iceberg.NestedField{ID: 1, Name: "x", Type: iceberg.PrimitiveTypes.Int64, Required: true},
+	)
+	require.NoError(t, builder.AddSchema(baseSchema))
+	require.NoError(t, builder.SetCurrentSchemaID(-1))
+	require.NoError(t, builder.AddPartitionSpec(iceberg.UnpartitionedSpec, true))
+	require.NoError(t, builder.SetDefaultSpecID(-1))
+	require.NoError(t, builder.AddSortOrder(&UnsortedSortOrder))
+	require.NoError(t, builder.SetDefaultSortOrderID(-1))
+	require.NoError(t, builder.SetLoc("file:///tmp/test"))
+
+	// Try to add schema with UnknownType to V2 table
+	unknownSchema := iceberg.NewSchema(1,
+		iceberg.NestedField{ID: 1, Name: "x", Type: iceberg.PrimitiveTypes.Int64, Required: true},
+		iceberg.NestedField{ID: 2, Name: "unknown_field", Type: iceberg.UnknownType{}, Required: false},
+	)
+
+	err = builder.AddSchema(unknownSchema)
+	require.ErrorContains(t, err, "unknown is not supported until v3")
 }

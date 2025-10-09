@@ -353,6 +353,26 @@ func checkSchemaCompatibility(sc *iceberg.Schema, formatVersion int) error {
 				colName, field.Type, minFormatVersion))
 		}
 
+		if _, ok := field.Type.(iceberg.UnknownType); ok {
+			if field.Required {
+				problems.WriteString(fmt.Sprintf(
+					"\n- cannot create required field with unknown type: %s",
+					colName))
+			}
+
+			if field.InitialDefault != nil {
+				problems.WriteString(fmt.Sprintf(
+					"\n- cannot set non-null initial-default for unknown type field: %s",
+					colName))
+			}
+
+			if field.WriteDefault != nil {
+				problems.WriteString(fmt.Sprintf(
+					"\n- cannot set non-null write-default for unknown type field: %s",
+					colName))
+			}
+		}
+
 		if field.InitialDefault != nil && formatVersion < defaultValuesMinFormatVersion {
 			problems.WriteString(fmt.Sprintf(
 				"invalid initial default for %s: non-null default (%v) is not supported until v%d",
@@ -1389,6 +1409,9 @@ func (c *commonMetadata) checkSchemas() error {
 	for _, s := range c.SchemaList {
 		if s.ID == c.CurrentSchemaID {
 			return nil
+		}
+		if err := checkSchemaCompatibility(s, c.FormatVersion); err != nil {
+			return err
 		}
 	}
 
