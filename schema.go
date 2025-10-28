@@ -1314,6 +1314,154 @@ func AssignFreshSchemaIDs(sc *Schema, nextID func() int) (*Schema, error) {
 	return NewSchemaWithIdentifiers(0, newIdentifierIDs, fields...), nil
 }
 
+type assignFreshIDsVisitor struct {
+	visitingIDToName map[int]string
+	baseNameToID     map[string]int
+	nextIDFunc       func() int
+	oldIdToNew       map[int]int
+	fieldPath        []string
+}
+
+func (a *assignFreshIDsVisitor) getID(currentID int) int {
+	fullPath := strings.Join(a.fieldPath, ".")
+
+	if existingID, ok := a.baseNameToID[fullPath]; ok {
+		a.oldIdToNew[currentID] = existingID
+
+		return existingID
+	}
+
+	next := a.nextIDFunc()
+	a.oldIdToNew[currentID] = next
+
+	return next
+}
+
+func (a *assignFreshIDsVisitor) idFor(currentID int) int {
+	var fullName string
+	if name, ok := a.visitingIDToName[currentID]; ok {
+		fullName = name
+	}
+
+	if fullName != "" {
+		if existingID, ok := a.baseNameToID[fullName]; ok {
+			a.oldIdToNew[currentID] = existingID
+
+			return existingID
+		}
+	}
+
+	next := a.nextIDFunc()
+	a.oldIdToNew[currentID] = next
+
+	return next
+}
+
+func (a *assignFreshIDsVisitor) Schema(_ *Schema, structResult func() Type) Type {
+	return structResult()
+}
+
+func (a *assignFreshIDsVisitor) Struct(st StructType, fieldResults []func() Type) Type {
+	newFields := make([]NestedField, len(st.FieldList))
+	for idx, f := range st.FieldList {
+		a.fieldPath = append(a.fieldPath, f.Name)
+		newID := a.getID(f.ID)
+		resultType := fieldResults[idx]()
+		a.fieldPath = a.fieldPath[:len(a.fieldPath)-1]
+
+		newFields[idx] = NestedField{
+			ID:             newID,
+			Name:           f.Name,
+			Type:           resultType,
+			Doc:            f.Doc,
+			Required:       f.Required,
+			InitialDefault: f.InitialDefault,
+			WriteDefault:   f.WriteDefault,
+		}
+	}
+
+	return &StructType{FieldList: newFields}
+}
+
+func (a *assignFreshIDsVisitor) Field(_ NestedField, fieldResult func() Type) Type {
+	return fieldResult()
+}
+
+func (a *assignFreshIDsVisitor) List(list ListType, elemResult func() Type) Type {
+	elemID := a.idFor(list.ElementID)
+
+	return &ListType{
+		ElementID:       elemID,
+		Element:         elemResult(),
+		ElementRequired: list.ElementRequired,
+	}
+}
+
+func (a *assignFreshIDsVisitor) Map(mapType MapType, keyResult, valueResult func() Type) Type {
+	keyID := a.idFor(mapType.KeyID)
+	valueID := a.idFor(mapType.ValueID)
+
+	return &MapType{
+		KeyID:         keyID,
+		ValueID:       valueID,
+		KeyType:       keyResult(),
+		ValueType:     valueResult(),
+		ValueRequired: mapType.ValueRequired,
+	}
+}
+
+func (a *assignFreshIDsVisitor) Primitive(p PrimitiveType) Type {
+	return p
+}
+
+// AssignFreshIds creates a new schema based on newSchema, preserving field IDs
+// from baseSchema for fields that match by name, and assigning fresh IDs to new fields.
+// This is used during table replacement to maintain field ID consistency.
+//
+// The nextID function is used to generate fresh IDs for new fields. It should typically
+// start from baseSchema.HighestFieldID() + 1.
+func AssignFreshIds(newSchema, baseSchema *Schema, nextID func() int) (*Schema, error) {
+	if newSchema == nil || baseSchema == nil {
+		return nil, fmt.Errorf("%w: schemas cannot be nil", ErrInvalidArgument)
+	}
+	if nextID == nil {
+		return nil, fmt.Errorf("%w: nextID function cannot be nil", ErrInvalidArgument)
+	}
+
+	baseNameToID, err := baseSchema.lazyNameToID()
+	if err != nil {
+		return nil, err
+	}
+
+	visitingIDToName, err := newSchema.lazyIDToName()
+	if err != nil {
+		return nil, err
+	}
+
+	visitor := &assignFreshIDsVisitor{
+		visitingIDToName: visitingIDToName,
+		baseNameToID:     baseNameToID,
+		nextIDFunc:       nextID,
+		oldIdToNew:       make(map[int]int),
+	}
+
+	outType, err := PreOrderVisit(newSchema, visitor)
+	if err != nil {
+		return nil, err
+	}
+
+	fields := outType.(*StructType).FieldList
+	var newIdentifierIDs []int
+	if len(newSchema.IdentifierFieldIDs) != 0 {
+		newIdentifierIDs = make([]int, len(newSchema.IdentifierFieldIDs))
+		for i, id := range newSchema.IdentifierFieldIDs {
+			newIdentifierIDs[i] = visitor.oldIdToNew[id]
+		}
+	}
+
+	return NewSchemaWithIdentifiers(0, newIdentifierIDs, fields...), nil
+}
+
 type SchemaWithPartnerVisitor[T, P any] interface {
 	Schema(sc *Schema, schemaPartner P, structResult T) T
 	Struct(st StructType, structPartner P, fieldResults []T) T

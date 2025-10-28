@@ -66,6 +66,7 @@ type Transaction struct {
 
 	mx        sync.Mutex
 	committed bool
+	replace   bool
 }
 
 func (t *Transaction) apply(updates []Update, reqs []Requirement) error {
@@ -526,8 +527,14 @@ func (t *Transaction) Commit(ctx context.Context) (*Table, error) {
 
 	t.committed = true
 
-	if len(t.meta.updates) > 0 {
-		t.reqs = append(t.reqs, AssertTableUUID(t.meta.uuid))
+	if len(t.meta.updates) > 0 || t.tbl.metadataLocation == "" {
+		if t.tbl.metadataLocation == "" {
+			t.reqs = []Requirement{AssertCreate()}
+		} else if t.replace {
+			t.reqs = ForReplaceTable(t.tbl.metadata)
+		} else {
+			t.reqs = append(t.reqs, AssertTableUUID(t.meta.uuid))
+		}
 		tbl, err := t.tbl.doCommit(ctx, t.meta.updates, t.reqs)
 		if err != nil {
 			return tbl, err

@@ -600,13 +600,19 @@ func (s *ScannerSuite) TestUnpartitionedFixedTable() {
 	s.Require().NoError(err)
 	defer results.Release()
 
-	s.EqualValues(3, results.NumRows())
-	resultCol = results.Column(0).Data().Chunk(0).(*array.FixedSizeBinary)
-	s.Equal([]byte("1231231231231231231231231"), resultCol.Value(0))
-	resultCol = results.Column(0).Data().Chunk(1).(*array.FixedSizeBinary)
-	s.Equal([]byte("12345678901234567ass12345"), resultCol.Value(0))
-	resultCol = results.Column(0).Data().Chunk(2).(*array.FixedSizeBinary)
-	s.Equal([]byte("qweeqwwqq1231231231231111"), resultCol.Value(0))
+	// Collect all values from all chunks
+	var values [][]byte
+	for _, chunk := range results.Column(0).Data().Chunks() {
+		arr := chunk.(*array.FixedSizeBinary)
+		for i := 0; i < arr.Len(); i++ {
+			values = append(values, arr.Value(i))
+		}
+	}
+
+	s.Require().Len(values, 3)
+	s.Equal([]byte("1231231231231231231231231"), values[0])
+	s.Equal([]byte("12345678901234567ass12345"), values[1])
+	s.Equal([]byte("qweeqwwqq1231231231231111"), values[2])
 }
 
 func (s *ScannerSuite) TestScanTag() {

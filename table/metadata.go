@@ -36,9 +36,11 @@ import (
 )
 
 const (
-	partitionFieldStartID             = 1000
-	supportedTableFormatVersion       = 3
-	oneMinuteInMs               int64 = 60_000
+	partitionFieldStartID       = 1000
+	supportedTableFormatVersion = 3
+	minFormatVersionRowLineage  = 3
+	initialRowID                = int64(0)
+	oneMinuteInMs               = int64(60_000)
 )
 
 func generateSnapshotID() int64 {
@@ -427,12 +429,52 @@ func (b *MetadataBuilder) AddSnapshot(snapshot *Snapshot) error {
 			snapshot.TimestampMs, maxTS)
 	}
 
+	if err := b.validateAndUpdateRowLineage(snapshot); err != nil {
+		return err
+	}
+
 	b.updates = append(b.updates, NewAddSnapshotUpdate(snapshot))
 	b.lastUpdatedMS = snapshot.TimestampMs
 	b.lastSequenceNumber = &snapshot.SequenceNumber
 	b.snapshotList = append(b.snapshotList, *snapshot)
 
 	return nil
+}
+
+func (b *MetadataBuilder) validateAndUpdateRowLineage(snapshot *Snapshot) error {
+	if b.formatVersion < minFormatVersionRowLineage {
+		return nil
+	}
+
+	if err := snapshot.ValidateRowLineage(); err != nil {
+		return err
+	}
+
+	if snapshot.FirstRowID == nil {
+		return fmt.Errorf("%w: first-row-id is required for v3 snapshots", ErrInvalidRowLineage)
+	}
+
+	nextRowID := b.currentNextRowID()
+	if *snapshot.FirstRowID < nextRowID {
+		return fmt.Errorf("%w: first-row-id %d is behind table next-row-id %d",
+			ErrInvalidRowLineage, *snapshot.FirstRowID, nextRowID)
+	}
+
+	newNextRowID := nextRowID + *snapshot.AddedRows
+	b.nextRowID = &newNextRowID
+
+	return nil
+}
+
+func (b *MetadataBuilder) currentNextRowID() int64 {
+	if b.nextRowID != nil {
+		return *b.nextRowID
+	}
+	if b.base != nil {
+		return b.base.NextRowID()
+	}
+
+	return initialRowID
 }
 
 func (b *MetadataBuilder) RemoveSnapshots(snapshotIds []int64) error {
@@ -796,7 +838,7 @@ func (b *MetadataBuilder) buildCommonMetadata() (*commonMetadata, error) {
 
 	if b.previousFileEntry != nil && b.HasChanges() {
 		maxMetadataLogEntries := max(1,
-			b.base.Properties().GetInt(
+			b.props.GetInt(
 				MetadataPreviousVersionsMaxKey, MetadataPreviousVersionsMaxDefault))
 		b.AppendMetadataLog(*b.previousFileEntry)
 		b.TrimMetadataLogs(maxMetadataLogEntries)
@@ -1963,4 +2005,99 @@ func UpdateTableMetadata(base Metadata, updates []Update, metadataLoc string) (M
 	}
 
 	return bldr.Build()
+}
+
+func BuildReplacement(base Metadata, baseLocation string, updatedSchema *iceberg.Schema,
+	updatedPartitionSpec *iceberg.PartitionSpec,
+	updatedSortOrder SortOrder,
+	newLocation string,
+	updatedProperties iceberg.Properties,
+) (*MetadataBuilder, error) {
+	builder, err := MetadataBuilderFromBase(base, baseLocation)
+	if err != nil {
+		return nil, err
+	}
+	currentSchema := base.CurrentSchema()
+	nextID := currentSchema.HighestFieldID()
+	freshSchema, err := iceberg.AssignFreshIds(updatedSchema, currentSchema, func() int {
+		nextID++
+
+		return nextID
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	freshSpec := updatedPartitionSpec
+	if updatedPartitionSpec == nil {
+		freshSpec = iceberg.UnpartitionedSpec
+	}
+
+	specID := 0
+	if base.Version() > 1 {
+		for _, existingSpec := range base.PartitionSpecs() {
+			if existingSpec.ID() >= specID {
+				specID = existingSpec.ID() + 1
+			}
+		}
+	}
+
+	reassignedSpec, err := freshSpec.BindToSchema(freshSchema, base.LastPartitionSpecID(), &specID)
+	if err != nil {
+		return nil, err
+	}
+
+	freshSortOrder := updatedSortOrder
+	if updatedSortOrder.IsUnsorted() {
+		freshSortOrder = UnsortedSortOrder
+	}
+
+	reassignedSortOrder, err := AssignFreshSortOrderIDs(freshSortOrder, updatedSchema, freshSchema)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := builder.SetUUID(base.TableUUID()); err != nil {
+		return nil, err
+	}
+
+	if err := builder.AddSchema(freshSchema); err != nil {
+		return nil, err
+	}
+
+	if err := builder.SetCurrentSchemaID(-1); err != nil {
+		return nil, err
+	}
+
+	if err := builder.AddPartitionSpec(&reassignedSpec, false); err != nil {
+		return nil, err
+	}
+
+	if err := builder.SetDefaultSpecID(-1); err != nil {
+		return nil, err
+	}
+
+	if err := builder.AddSortOrder(&reassignedSortOrder); err != nil {
+		return nil, err
+	}
+
+	if err := builder.SetDefaultSortOrderID(-1); err != nil {
+		return nil, err
+	}
+
+	if err := builder.SetLoc(newLocation); err != nil {
+		return nil, err
+	}
+
+	if err := builder.SetProperties(updatedProperties); err != nil {
+		return nil, err
+	}
+
+	if _, ok := builder.refs[MainBranch]; ok {
+		if err := builder.RemoveSnapshotRef(MainBranch); err != nil {
+			return nil, err
+		}
+	}
+
+	return builder, nil
 }

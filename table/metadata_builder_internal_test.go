@@ -656,6 +656,153 @@ func TestExpireMetadataLog(t *testing.T) {
 	require.Len(t, meta.(*metadataV2).MetadataLog, 2)
 }
 
+// TestMetadataLogTrimsWithUpdatedProperty tests that when setting
+// write.metadata.previous-versions-max property during a build operation,
+// the trimming logic uses the updated value from the current builder (b.props)
+// rather than the value from the base metadata (b.base.Properties()).
+//
+// This test would fail without the fix in commit 0aa6e52e2ac6a46bca2b1f5c92e85714e37c7451
+// which changed buildCommonMetadata() to read from b.props instead of b.base.Properties().
+func TestMetadataLogTrimsWithUpdatedProperty(t *testing.T) {
+	// Create initial metadata with default property value (100)
+	builder1 := builderWithoutChanges(2)
+	meta, err := builder1.Build()
+	require.NoError(t, err)
+
+	// Build up several metadata versions with the default property
+	// This creates multiple metadata log entries
+	for i := 0; i < 5; i++ {
+		location := fmt.Sprintf("s3://bucket/metadata/v%d.json", i)
+		builder, err := MetadataBuilderFromBase(meta, location)
+		require.NoError(t, err)
+		err = builder.SetProperties(map[string]string{
+			fmt.Sprintf("change_%d", i): fmt.Sprintf("value_%d", i),
+		})
+		require.NoError(t, err)
+		meta, err = builder.Build()
+		require.NoError(t, err)
+	}
+
+	// At this point, we should have 5 metadata log entries
+	require.Len(t, meta.(*metadataV2).MetadataLog, 5,
+		"Expected 5 metadata log entries after 5 updates")
+
+	// Now create a new builder and SIMULTANEOUSLY:
+	// 1. Set the write.metadata.previous-versions-max to 2
+	// 2. Make another change to trigger trimming
+	//
+	// The critical test: the trimming should use the NEW value (2) not the old default (100)
+	location := "s3://bucket/metadata/v6.json"
+	finalBuilder, err := MetadataBuilderFromBase(meta, location)
+	require.NoError(t, err)
+
+	// Set both the trim property AND another property to trigger build changes
+	err = finalBuilder.SetProperties(map[string]string{
+		MetadataPreviousVersionsMaxKey: "2", // Set to 2 in this same update
+		"final_change":                 "final_value",
+	})
+	require.NoError(t, err)
+
+	finalMeta, err := finalBuilder.Build()
+	require.NoError(t, err)
+
+	// The critical assertion: metadata log should be trimmed to 2 entries
+	// WITHOUT the fix, this would fail because it would read the default value (100)
+	// from base metadata and keep all 6 entries instead of trimming to 2
+	require.Len(t, finalMeta.(*metadataV2).MetadataLog, 2,
+		"Metadata log should be trimmed to 2 entries using the updated property value, not the base metadata value")
+
+	// Verify the property was actually set in the final metadata
+	require.Equal(t, "2", finalMeta.Properties()[MetadataPreviousVersionsMaxKey],
+		"Property should be set to 2 in final metadata")
+}
+
+// TestMetadataLogTrimsWithDynamicPropertyChange tests that changing
+// write.metadata.previous-versions-max property takes effect immediately
+// for trimming in the same build operation, testing various boundary conditions.
+func TestMetadataLogTrimsWithDynamicPropertyChange(t *testing.T) {
+	tests := []struct {
+		name              string
+		initialEntries    int
+		newMaxVersions    string
+		expectedAfterTrim int
+		description       string
+	}{
+		{
+			name:              "trim from 10 to 3",
+			initialEntries:    10,
+			newMaxVersions:    "3",
+			expectedAfterTrim: 3,
+			description:       "Should trim to exactly 3 entries when set to 3",
+		},
+		{
+			name:              "trim from 10 to 1",
+			initialEntries:    10,
+			newMaxVersions:    "1",
+			expectedAfterTrim: 1,
+			description:       "Should keep minimum of 1 entry",
+		},
+		{
+			name:              "no trim needed",
+			initialEntries:    3,
+			newMaxVersions:    "5",
+			expectedAfterTrim: 4, // 3 initial + 1 new entry from this build
+			description:       "Should not trim when new limit is higher than current entries",
+		},
+		{
+			name:              "trim to exactly current count",
+			initialEntries:    5,
+			newMaxVersions:    "5",
+			expectedAfterTrim: 5,
+			description:       "Should keep all entries when new limit equals current count",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Create initial metadata
+			builder1 := builderWithoutChanges(2)
+			meta, err := builder1.Build()
+			require.NoError(t, err)
+
+			// Build up the specified number of metadata versions
+			for i := 0; i < tt.initialEntries; i++ {
+				location := fmt.Sprintf("s3://bucket/metadata/v%d.json", i)
+				builder, err := MetadataBuilderFromBase(meta, location)
+				require.NoError(t, err)
+				err = builder.SetProperties(map[string]string{
+					fmt.Sprintf("change_%d", i): fmt.Sprintf("value_%d", i),
+				})
+				require.NoError(t, err)
+				meta, err = builder.Build()
+				require.NoError(t, err)
+			}
+
+			require.Len(t, meta.(*metadataV2).MetadataLog, tt.initialEntries,
+				"Expected %d metadata log entries after %d updates", tt.initialEntries, tt.initialEntries)
+
+			// Now set the property and make a change
+			location := "s3://bucket/metadata/final.json"
+			finalBuilder, err := MetadataBuilderFromBase(meta, location)
+			require.NoError(t, err)
+
+			err = finalBuilder.SetProperties(map[string]string{
+				MetadataPreviousVersionsMaxKey: tt.newMaxVersions,
+				"test_property":                "test_value",
+			})
+			require.NoError(t, err)
+
+			finalMeta, err := finalBuilder.Build()
+			require.NoError(t, err)
+
+			// Verify the trimming used the updated property value
+			actualCount := len(finalMeta.(*metadataV2).MetadataLog)
+			require.Equal(t, tt.expectedAfterTrim, actualCount,
+				"%s: expected %d entries but got %d", tt.description, tt.expectedAfterTrim, actualCount)
+		})
+	}
+}
+
 func TestV2SequenceNumberCannotDecrease(t *testing.T) {
 	builder := builderWithoutChanges(2)
 	schemaID := 0
@@ -1256,6 +1403,210 @@ func TestUnsupportedTypes(t *testing.T) {
 			})
 		}
 	}
+}
+
+func TestAddSnapshotV3RequiresRowLineage(t *testing.T) {
+	builder := builderWithoutChanges(3)
+	schemaID := 0
+	snapshot := Snapshot{
+		SnapshotID:       1,
+		ParentSnapshotID: nil,
+		SequenceNumber:   0,
+		TimestampMs:      builder.base.LastUpdatedMillis() + 1,
+		ManifestList:     "/snap-1.avro",
+		Summary:          &Summary{Operation: OpAppend},
+		SchemaID:         &schemaID,
+	}
+
+	err := builder.AddSnapshot(&snapshot)
+	require.ErrorIs(t, err, ErrInvalidRowLineage)
+	require.ErrorContains(t, err, "first-row-id is required for v3 snapshots")
+}
+
+func TestAddSnapshotV3RejectsFirstRowIDBehindNextRowID(t *testing.T) {
+	builder := builderWithoutChanges(3)
+	schemaID := 0
+	firstRowID := int64(0)
+	addedRows := int64(100)
+
+	snapshot1 := Snapshot{
+		SnapshotID:       1,
+		ParentSnapshotID: nil,
+		SequenceNumber:   0,
+		TimestampMs:      builder.base.LastUpdatedMillis() + 1,
+		ManifestList:     "/snap-1.avro",
+		Summary:          &Summary{Operation: OpAppend},
+		SchemaID:         &schemaID,
+		FirstRowID:       &firstRowID,
+		AddedRows:        &addedRows,
+	}
+	require.NoError(t, builder.AddSnapshot(&snapshot1))
+
+	behindFirstRowID := int64(50)
+	snapshot2 := Snapshot{
+		SnapshotID:       2,
+		ParentSnapshotID: nil,
+		SequenceNumber:   1,
+		TimestampMs:      builder.base.LastUpdatedMillis() + 2,
+		ManifestList:     "/snap-2.avro",
+		Summary:          &Summary{Operation: OpAppend},
+		SchemaID:         &schemaID,
+		FirstRowID:       &behindFirstRowID,
+		AddedRows:        &addedRows,
+	}
+
+	err := builder.AddSnapshot(&snapshot2)
+	require.ErrorIs(t, err, ErrInvalidRowLineage)
+	require.ErrorContains(t, err, "first-row-id 50 is behind table next-row-id 100")
+}
+
+func TestAddSnapshotV3UpdatesNextRowID(t *testing.T) {
+	builder := builderWithoutChanges(3)
+	schemaID := 0
+
+	firstRowID1 := int64(0)
+	addedRows1 := int64(30)
+	snapshot1 := Snapshot{
+		SnapshotID:       1,
+		ParentSnapshotID: nil,
+		SequenceNumber:   0,
+		TimestampMs:      builder.base.LastUpdatedMillis() + 1,
+		ManifestList:     "/snap-1.avro",
+		Summary:          &Summary{Operation: OpAppend},
+		SchemaID:         &schemaID,
+		FirstRowID:       &firstRowID1,
+		AddedRows:        &addedRows1,
+	}
+	require.NoError(t, builder.AddSnapshot(&snapshot1))
+	require.Equal(t, int64(30), *builder.nextRowID)
+
+	firstRowID2 := int64(30)
+	addedRows2 := int64(28)
+	snapshot2 := Snapshot{
+		SnapshotID:       2,
+		ParentSnapshotID: nil,
+		SequenceNumber:   1,
+		TimestampMs:      builder.base.LastUpdatedMillis() + 2,
+		ManifestList:     "/snap-2.avro",
+		Summary:          &Summary{Operation: OpAppend},
+		SchemaID:         &schemaID,
+		FirstRowID:       &firstRowID2,
+		AddedRows:        &addedRows2,
+	}
+	require.NoError(t, builder.AddSnapshot(&snapshot2))
+	require.Equal(t, int64(58), *builder.nextRowID)
+
+	meta, err := builder.Build()
+	require.NoError(t, err)
+	require.Equal(t, int64(58), meta.NextRowID())
+}
+
+func TestAddSnapshotV3ValidatesNegativeFirstRowID(t *testing.T) {
+	builder := builderWithoutChanges(3)
+	schemaID := 0
+	negativeFirstRowID := int64(-1)
+	addedRows := int64(100)
+
+	snapshot := Snapshot{
+		SnapshotID:       1,
+		ParentSnapshotID: nil,
+		SequenceNumber:   0,
+		TimestampMs:      builder.base.LastUpdatedMillis() + 1,
+		ManifestList:     "/snap-1.avro",
+		Summary:          &Summary{Operation: OpAppend},
+		SchemaID:         &schemaID,
+		FirstRowID:       &negativeFirstRowID,
+		AddedRows:        &addedRows,
+	}
+
+	err := builder.AddSnapshot(&snapshot)
+	require.ErrorIs(t, err, ErrInvalidRowLineage)
+	require.ErrorContains(t, err, "first-row-id cannot be negative")
+}
+
+func TestAddSnapshotV3ValidatesNegativeAddedRows(t *testing.T) {
+	builder := builderWithoutChanges(3)
+	schemaID := 0
+	firstRowID := int64(0)
+	negativeAddedRows := int64(-1)
+
+	snapshot := Snapshot{
+		SnapshotID:       1,
+		ParentSnapshotID: nil,
+		SequenceNumber:   0,
+		TimestampMs:      builder.base.LastUpdatedMillis() + 1,
+		ManifestList:     "/snap-1.avro",
+		Summary:          &Summary{Operation: OpAppend},
+		SchemaID:         &schemaID,
+		FirstRowID:       &firstRowID,
+		AddedRows:        &negativeAddedRows,
+	}
+
+	err := builder.AddSnapshot(&snapshot)
+	require.ErrorIs(t, err, ErrInvalidRowLineage)
+	require.ErrorContains(t, err, "added-rows cannot be negative")
+}
+
+func TestAddSnapshotV3RequiresAddedRowsWhenFirstRowIDSet(t *testing.T) {
+	builder := builderWithoutChanges(3)
+	schemaID := 0
+	firstRowID := int64(0)
+
+	snapshot := Snapshot{
+		SnapshotID:       1,
+		ParentSnapshotID: nil,
+		SequenceNumber:   0,
+		TimestampMs:      builder.base.LastUpdatedMillis() + 1,
+		ManifestList:     "/snap-1.avro",
+		Summary:          &Summary{Operation: OpAppend},
+		SchemaID:         &schemaID,
+		FirstRowID:       &firstRowID,
+		AddedRows:        nil,
+	}
+
+	err := builder.AddSnapshot(&snapshot)
+	require.ErrorIs(t, err, ErrInvalidRowLineage)
+	require.ErrorContains(t, err, "added-rows is required when first-row-id is set")
+}
+
+func TestAddSnapshotV2DoesNotRequireRowLineage(t *testing.T) {
+	builder := builderWithoutChanges(2)
+	schemaID := 0
+	snapshot := Snapshot{
+		SnapshotID:       1,
+		ParentSnapshotID: nil,
+		SequenceNumber:   0,
+		TimestampMs:      builder.base.LastUpdatedMillis() + 1,
+		ManifestList:     "/snap-1.avro",
+		Summary:          &Summary{Operation: OpAppend},
+		SchemaID:         &schemaID,
+	}
+
+	err := builder.AddSnapshot(&snapshot)
+	require.NoError(t, err)
+}
+
+func TestAddSnapshotV3AcceptsFirstRowIDEqualToNextRowID(t *testing.T) {
+	builder := builderWithoutChanges(3)
+	schemaID := 0
+	firstRowID := int64(0)
+	addedRows := int64(100)
+
+	snapshot := Snapshot{
+		SnapshotID:       1,
+		ParentSnapshotID: nil,
+		SequenceNumber:   0,
+		TimestampMs:      builder.base.LastUpdatedMillis() + 1,
+		ManifestList:     "/snap-1.avro",
+		Summary:          &Summary{Operation: OpAppend},
+		SchemaID:         &schemaID,
+		FirstRowID:       &firstRowID,
+		AddedRows:        &addedRows,
+	}
+
+	err := builder.AddSnapshot(&snapshot)
+	require.NoError(t, err)
+	require.Equal(t, int64(100), *builder.nextRowID)
 }
 
 func generateTypeSchema(typ iceberg.Type) *iceberg.Schema {

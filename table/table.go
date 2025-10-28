@@ -86,13 +86,38 @@ func (t Table) LocationProvider() (LocationProvider, error) {
 	return LoadLocationProvider(t.metadata.Location(), t.metadata.Properties())
 }
 
+func (t Table) NewReplaceTransaction(schema *iceberg.Schema, partitionSpec *iceberg.PartitionSpec, sortOrder SortOrder, location string, props iceberg.Properties) (*Transaction, error) {
+	builder, err := BuildReplacement(t.Metadata(), t.MetadataLocation(),
+		schema,
+		partitionSpec,
+		sortOrder,
+		location,
+		props,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	tx := t.NewTransaction()
+	tx.replace = true
+	tx.meta = builder
+
+	return tx, nil
+}
+
 func (t Table) NewTransaction() *Transaction {
 	meta, _ := MetadataBuilderFromBase(t.metadata, t.metadataLocation)
+	reqs := make([]Requirement, 0)
+	if t.metadataLocation == "" {
+		reqs = []Requirement{
+			AssertCreate(),
+		}
+	}
 
 	return &Transaction{
 		tbl:  &t,
 		meta: meta,
-		reqs: []Requirement{},
+		reqs: reqs,
 	}
 }
 
