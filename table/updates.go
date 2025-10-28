@@ -112,6 +112,14 @@ func (u *Updates) UnmarshalJSON(data []byte) error {
 			upd = &removeSpecUpdate{}
 		case UpdateRemoveSchemas:
 			upd = &removeSchemasUpdate{}
+		case UpdateSetStatistics:
+			upd = &setStatisticsUpdate{}
+		case UpdateRemoveStatistics:
+			upd = &removeStatisticsUpdate{}
+		case UpdateSetPartitionStatistics:
+			upd = &setPartitionStatisticsUpdate{}
+		case UpdateRemovePartitionStatistics:
+			upd = &removePartitionStatisticsUpdate{}
 		default:
 			return fmt.Errorf("unknown update action: %s", base.ActionName)
 		}
@@ -554,4 +562,51 @@ func NewRemoveSchemasUpdate(schemaIds []int) *removeSchemasUpdate {
 
 func (u *removeSchemasUpdate) Apply(builder *MetadataBuilder) error {
 	return builder.RemoveSchemas(u.SchemaIDs)
+}
+
+// Statistics update actions - these are no-op stubs
+
+const (
+	UpdateSetStatistics             = "set-statistics"
+	UpdateRemoveStatistics          = "remove-statistics"
+	UpdateSetPartitionStatistics    = "set-partition-statistics"
+	UpdateRemovePartitionStatistics = "remove-partition-statistics"
+)
+
+type setStatisticsUpdate struct {
+	baseUpdate
+	SnapshotID *int64          `json:"snapshot-id,omitempty"`
+	Statistics json.RawMessage `json:"statistics"`
+}
+
+func (u *setStatisticsUpdate) Apply(builder *MetadataBuilder) error {
+	return nil
+}
+
+type removeStatisticsUpdate struct {
+	baseUpdate
+	SnapshotID *int64 `json:"snapshot-id"`
+}
+
+func (u *removeStatisticsUpdate) Apply(builder *MetadataBuilder) error {
+	return nil
+}
+
+type setPartitionStatisticsUpdate struct {
+	baseUpdate
+	SnapshotID          *int64          `json:"snapshot-id,omitempty"`
+	PartitionStatistics json.RawMessage `json:"partition-statistics"`
+}
+
+func (u *setPartitionStatisticsUpdate) Apply(builder *MetadataBuilder) error {
+	return nil
+}
+
+type removePartitionStatisticsUpdate struct {
+	baseUpdate
+	SnapshotID *int64 `json:"snapshot-id"`
+}
+
+func (u *removePartitionStatisticsUpdate) Apply(builder *MetadataBuilder) error {
+	return nil
 }

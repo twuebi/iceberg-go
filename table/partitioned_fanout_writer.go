@@ -149,11 +149,12 @@ func (p *partitionedFanoutWriter) fanout(ctx context.Context, inputRecordsCh <-c
 }
 
 func (p *partitionedFanoutWriter) yieldDataFiles(fanoutWorkers *errgroup.Group, outputDataFilesCh chan iceberg.DataFile) iter.Seq2[iceberg.DataFile, error] {
-	var err error
+	errCh := make(chan error, 1)
 	go func() {
 		defer close(outputDataFilesCh)
-		err = fanoutWorkers.Wait()
+		err := fanoutWorkers.Wait()
 		err = errors.Join(err, p.writers.closeAll())
+		errCh <- err
 	}()
 
 	return func(yield func(iceberg.DataFile, error) bool) {
@@ -163,12 +164,12 @@ func (p *partitionedFanoutWriter) yieldDataFiles(fanoutWorkers *errgroup.Group, 
 		}()
 
 		for f := range outputDataFilesCh {
-			if !yield(f, err) {
+			if !yield(f, nil) {
 				return
 			}
 		}
 
-		if err != nil {
+		if err := <-errCh; err != nil {
 			yield(nil, err)
 		}
 	}

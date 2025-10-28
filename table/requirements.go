@@ -408,3 +408,18 @@ func ParseRequirementBytes(b []byte) (Requirement, error) {
 
 	return nil, ErrInvalidRequirement
 }
+
+// ForReplaceTable generates the relaxed requirements for a replace table operation.
+// Replace operations only assert on table UUID, not on current schema/spec/sort order
+// values or field IDs, since the entire table is being replaced.
+func ForReplaceTable(meta Metadata) Requirements {
+	reqs := Requirements{
+		AssertTableUUID(meta.TableUUID()),
+	}
+
+	if meta.LastPartitionSpecID() != nil {
+		reqs = append(reqs, AssertLastAssignedPartitionID(*meta.LastPartitionSpecID()))
+	}
+
+	return reqs
+}

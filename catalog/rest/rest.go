@@ -731,7 +731,7 @@ func (r *Catalog) listTablesPage(ctx context.Context, namespace table.Identifier
 	return out, rsp.NextPageToken, nil
 }
 
-func splitIdentForPath(ident table.Identifier) (string, string, error) {
+func SplitIdentForPath(ident table.Identifier) (string, string, error) {
 	if len(ident) < 1 {
 		return "", "", fmt.Errorf("%w: missing namespace or invalid identifier %v",
 			catalog.ErrNoSuchTable, strings.Join(ident, "."))
@@ -741,7 +741,7 @@ func splitIdentForPath(ident table.Identifier) (string, string, error) {
 }
 
 func (r *Catalog) CreateTable(ctx context.Context, identifier table.Identifier, schema *iceberg.Schema, opts ...catalog.CreateTableOpt) (*table.Table, error) {
-	ns, tbl, err := splitIdentForPath(identifier)
+	ns, tbl, err := SplitIdentForPath(identifier)
 	if err != nil {
 		return nil, err
 	}
@@ -779,7 +779,7 @@ func (r *Catalog) CreateTable(ctx context.Context, identifier table.Identifier, 
 }
 
 func (r *Catalog) CommitTable(ctx context.Context, ident table.Identifier, requirements []table.Requirement, updates []table.Update) (table.Metadata, string, error) {
-	ns, tblName, err := splitIdentForPath(ident)
+	ns, tblName, err := SplitIdentForPath(ident)
 	if err != nil {
 		return nil, "", err
 	}
@@ -809,7 +809,7 @@ func (r *Catalog) CommitTable(ctx context.Context, ident table.Identifier, requi
 }
 
 func (r *Catalog) RegisterTable(ctx context.Context, identifier table.Identifier, metadataLoc string) (*table.Table, error) {
-	ns, tbl, err := splitIdentForPath(identifier)
+	ns, tbl, err := SplitIdentForPath(identifier)
 	if err != nil {
 		return nil, err
 	}
@@ -835,7 +835,7 @@ func (r *Catalog) RegisterTable(ctx context.Context, identifier table.Identifier
 }
 
 func (r *Catalog) LoadTable(ctx context.Context, identifier table.Identifier) (*table.Table, error) {
-	ns, tbl, err := splitIdentForPath(identifier)
+	ns, tbl, err := SplitIdentForPath(identifier)
 	if err != nil {
 		return nil, err
 	}
@@ -856,7 +856,7 @@ func (r *Catalog) LoadTable(ctx context.Context, identifier table.Identifier) (*
 }
 
 func (r *Catalog) UpdateTable(ctx context.Context, ident table.Identifier, requirements []table.Requirement, updates []table.Update) (*table.Table, error) {
-	ns, tbl, err := splitIdentForPath(ident)
+	ns, tbl, err := SplitIdentForPath(ident)
 	if err != nil {
 		return nil, err
 	}
@@ -884,7 +884,7 @@ func (r *Catalog) UpdateTable(ctx context.Context, ident table.Identifier, requi
 }
 
 func (r *Catalog) DropTable(ctx context.Context, identifier table.Identifier) error {
-	ns, tbl, err := splitIdentForPath(identifier)
+	ns, tbl, err := SplitIdentForPath(identifier)
 	if err != nil {
 		return err
 	}
@@ -896,7 +896,7 @@ func (r *Catalog) DropTable(ctx context.Context, identifier table.Identifier) er
 }
 
 func (r *Catalog) PurgeTable(ctx context.Context, identifier table.Identifier) error {
-	ns, tbl, err := splitIdentForPath(identifier)
+	ns, tbl, err := SplitIdentForPath(identifier)
 	if err != nil {
 		return err
 	}
@@ -1035,7 +1035,7 @@ func (r *Catalog) CheckNamespaceExists(ctx context.Context, namespace table.Iden
 }
 
 func (r *Catalog) CheckTableExists(ctx context.Context, identifier table.Identifier) (bool, error) {
-	ns, tbl, err := splitIdentForPath(identifier)
+	ns, tbl, err := SplitIdentForPath(identifier)
 	if err != nil {
 		return false, err
 	}
@@ -1124,7 +1124,7 @@ func (r *Catalog) SetPageSize(ctx context.Context, sz int) context.Context {
 }
 
 func (r *Catalog) DropView(ctx context.Context, identifier table.Identifier) error {
-	ns, view, err := splitIdentForPath(identifier)
+	ns, view, err := SplitIdentForPath(identifier)
 	if err != nil {
 		return err
 	}
@@ -1136,7 +1136,7 @@ func (r *Catalog) DropView(ctx context.Context, identifier table.Identifier) err
 }
 
 func (r *Catalog) CheckViewExists(ctx context.Context, identifier table.Identifier) (bool, error) {
-	ns, view, err := splitIdentForPath(identifier)
+	ns, view, err := SplitIdentForPath(identifier)
 	if err != nil {
 		return false, err
 	}
@@ -1172,7 +1172,7 @@ type viewResponse struct {
 
 // CreateView creates a new view in the catalog.
 func (r *Catalog) CreateView(ctx context.Context, identifier table.Identifier, schema *iceberg.Schema, sql string, props iceberg.Properties) error {
-	ns, v, err := splitIdentForPath(identifier)
+	ns, v, err := SplitIdentForPath(identifier)
 	if err != nil {
 		return err
 	}
