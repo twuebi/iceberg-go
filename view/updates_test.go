@@ -107,3 +107,31 @@ func TestUpdatesUnmarshalJSONInvalidJSON(t *testing.T) {
 	err := json.Unmarshal([]byte(jsonData), &updates)
 	require.Error(t, err)
 }
+
+func TestSetCurrentViewVersionUpdateUnmarshalJSON(t *testing.T) {
+	t.Run("with explicit view-version-id", func(t *testing.T) {
+		jsonData := `[{"action": "set-current-view-version", "view-version-id": 5}]`
+
+		var updates Updates
+		err := json.Unmarshal([]byte(jsonData), &updates)
+		require.NoError(t, err)
+		require.Len(t, updates, 1)
+
+		setVersion, ok := updates[0].(*setCurrentViewVersionUpdate)
+		require.True(t, ok)
+		assert.Equal(t, int64(5), setVersion.VersionID)
+	})
+
+	t.Run("with view-version-id -1", func(t *testing.T) {
+		jsonData := `[{"action": "set-current-view-version", "view-version-id": -1}]`
+
+		var updates Updates
+		err := json.Unmarshal([]byte(jsonData), &updates)
+		require.NoError(t, err)
+		require.Len(t, updates, 1)
+
+		setVersion, ok := updates[0].(*setCurrentViewVersionUpdate)
+		require.True(t, ok)
+		assert.Equal(t, int64(-1), setVersion.VersionID)
+	})
+}

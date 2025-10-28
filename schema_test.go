@@ -943,3 +943,271 @@ func TestSanitizeColumnNamesEmptyFieldName(t *testing.T) {
 	assert.ErrorIs(t, err, iceberg.ErrInvalidSchema)
 	assert.ErrorContains(t, err, "field name cannot be empty")
 }
+
+func TestAssignFreshIds_PreserveMatchingFields(t *testing.T) {
+	baseSchema := iceberg.NewSchema(0,
+		iceberg.NestedField{ID: 1, Name: "Bucket", Type: iceberg.PrimitiveTypes.String, Required: true},
+		iceberg.NestedField{ID: 2, Name: "Key", Type: iceberg.PrimitiveTypes.String, Required: true},
+		iceberg.NestedField{ID: 3, Name: "Size", Type: iceberg.PrimitiveTypes.Int64, Required: false},
+	)
+
+	newSchema := iceberg.NewSchema(0,
+		iceberg.NestedField{ID: 1, Name: "Bucket", Type: iceberg.PrimitiveTypes.String, Required: true},
+		iceberg.NestedField{ID: 2, Name: "Key", Type: iceberg.PrimitiveTypes.String, Required: true},
+		iceberg.NestedField{ID: 3, Name: "ETag", Type: iceberg.PrimitiveTypes.String, Required: false},
+		iceberg.NestedField{ID: 4, Name: "LastModifiedDate", Type: iceberg.PrimitiveTypes.String, Required: true},
+	)
+
+	nextID := baseSchema.HighestFieldID()
+	result, err := iceberg.AssignFreshIds(newSchema, baseSchema, func() int {
+		nextID++
+
+		return nextID
+	})
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+
+	fields := result.Fields()
+	require.Len(t, fields, 4)
+
+	assert.Equal(t, 1, fields[0].ID)
+	assert.Equal(t, "Bucket", fields[0].Name)
+
+	assert.Equal(t, 2, fields[1].ID)
+	assert.Equal(t, "Key", fields[1].Name)
+
+	assert.Equal(t, 4, fields[2].ID)
+	assert.Equal(t, "ETag", fields[2].Name)
+
+	assert.Equal(t, 5, fields[3].ID)
+	assert.Equal(t, "LastModifiedDate", fields[3].Name)
+}
+
+func TestAssignFreshIds_SkipsRemovedFieldIDs(t *testing.T) {
+	baseSchema := iceberg.NewSchema(0,
+		iceberg.NestedField{ID: 1, Name: "Bucket", Type: iceberg.PrimitiveTypes.String, Required: true},
+		iceberg.NestedField{ID: 2, Name: "Key", Type: iceberg.PrimitiveTypes.String, Required: true},
+		iceberg.NestedField{ID: 3, Name: "Size", Type: iceberg.PrimitiveTypes.Int64, Required: false},
+	)
+
+	newSchema := iceberg.NewSchema(0,
+		iceberg.NestedField{ID: 1, Name: "Bucket", Type: iceberg.PrimitiveTypes.String, Required: true},
+		iceberg.NestedField{ID: 2, Name: "Key", Type: iceberg.PrimitiveTypes.String, Required: true},
+		iceberg.NestedField{ID: 4, Name: "ETag", Type: iceberg.PrimitiveTypes.String, Required: false},
+	)
+
+	nextID := baseSchema.HighestFieldID()
+	result, err := iceberg.AssignFreshIds(newSchema, baseSchema, func() int {
+		nextID++
+
+		return nextID
+	})
+
+	require.NoError(t, err)
+
+	fields := result.Fields()
+	require.Len(t, fields, 3)
+
+	assert.Equal(t, 1, fields[0].ID)
+	assert.Equal(t, 2, fields[1].ID)
+	assert.Equal(t, 4, fields[2].ID)
+
+	fieldIDs := []int{fields[0].ID, fields[1].ID, fields[2].ID}
+	assert.NotContains(t, fieldIDs, 3)
+}
+
+func TestAssignFreshIds_AllNewFields(t *testing.T) {
+	baseSchema := iceberg.NewSchema(0,
+		iceberg.NestedField{ID: 1, Name: "OldField1", Type: iceberg.PrimitiveTypes.String, Required: true},
+		iceberg.NestedField{ID: 2, Name: "OldField2", Type: iceberg.PrimitiveTypes.Int64, Required: false},
+	)
+
+	newSchema := iceberg.NewSchema(0,
+		iceberg.NestedField{ID: 1, Name: "NewField1", Type: iceberg.PrimitiveTypes.String, Required: true},
+		iceberg.NestedField{ID: 2, Name: "NewField2", Type: iceberg.PrimitiveTypes.Int64, Required: false},
+	)
+
+	nextID := baseSchema.HighestFieldID()
+	result, err := iceberg.AssignFreshIds(newSchema, baseSchema, func() int {
+		nextID++
+
+		return nextID
+	})
+
+	require.NoError(t, err)
+
+	fields := result.Fields()
+	assert.Equal(t, 3, fields[0].ID)
+	assert.Equal(t, 4, fields[1].ID)
+}
+
+func TestAssignFreshIds_WithNestedStruct(t *testing.T) {
+	baseSchema := iceberg.NewSchema(0,
+		iceberg.NestedField{ID: 1, Name: "id", Type: iceberg.PrimitiveTypes.Int64, Required: true},
+		iceberg.NestedField{
+			ID:   2,
+			Name: "person",
+			Type: &iceberg.StructType{
+				FieldList: []iceberg.NestedField{
+					{ID: 3, Name: "name", Type: iceberg.PrimitiveTypes.String, Required: true},
+					{ID: 4, Name: "age", Type: iceberg.PrimitiveTypes.Int32, Required: false},
+				},
+			},
+			Required: true,
+		},
+	)
+
+	newSchema := iceberg.NewSchema(0,
+		iceberg.NestedField{ID: 1, Name: "id", Type: iceberg.PrimitiveTypes.Int64, Required: true},
+		iceberg.NestedField{
+			ID:   2,
+			Name: "person",
+			Type: &iceberg.StructType{
+				FieldList: []iceberg.NestedField{
+					{ID: 3, Name: "name", Type: iceberg.PrimitiveTypes.String, Required: true},
+					{ID: 5, Name: "email", Type: iceberg.PrimitiveTypes.String, Required: false},
+				},
+			},
+			Required: true,
+		},
+	)
+
+	nextID := baseSchema.HighestFieldID()
+	result, err := iceberg.AssignFreshIds(newSchema, baseSchema, func() int {
+		nextID++
+
+		return nextID
+	})
+
+	require.NoError(t, err)
+
+	fields := result.Fields()
+	assert.Equal(t, 1, fields[0].ID)
+	assert.Equal(t, "id", fields[0].Name)
+
+	assert.Equal(t, 2, fields[1].ID)
+	assert.Equal(t, "person", fields[1].Name)
+
+	personFields := fields[1].Type.(*iceberg.StructType).FieldList
+	assert.Equal(t, 3, personFields[0].ID)
+	assert.Equal(t, "name", personFields[0].Name)
+
+	assert.Equal(t, 5, personFields[1].ID)
+	assert.Equal(t, "email", personFields[1].Name)
+}
+
+func TestAssignFreshIds_NilNextIDFunc(t *testing.T) {
+	baseSchema := iceberg.NewSchema(0,
+		iceberg.NestedField{ID: 1, Name: "field1", Type: iceberg.PrimitiveTypes.String, Required: true},
+	)
+
+	newSchema := iceberg.NewSchema(0,
+		iceberg.NestedField{ID: 1, Name: "field1", Type: iceberg.PrimitiveTypes.String, Required: true},
+	)
+
+	_, err := iceberg.AssignFreshIds(newSchema, baseSchema, nil)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "nextID function cannot be nil")
+}
+
+func TestAssignFreshIds_PreserveListElementID(t *testing.T) {
+	baseSchema := iceberg.NewSchema(0,
+		iceberg.NestedField{ID: 1, Name: "id", Type: iceberg.PrimitiveTypes.Int64, Required: true},
+		iceberg.NestedField{
+			ID:   2,
+			Name: "tags",
+			Type: &iceberg.ListType{
+				ElementID:       3,
+				Element:         iceberg.PrimitiveTypes.String,
+				ElementRequired: false,
+			},
+			Required: false,
+		},
+	)
+
+	newSchema := iceberg.NewSchema(0,
+		iceberg.NestedField{ID: 1, Name: "id", Type: iceberg.PrimitiveTypes.Int64, Required: true},
+		iceberg.NestedField{
+			ID:   2,
+			Name: "tags",
+			Type: &iceberg.ListType{
+				ElementID:       10,
+				Element:         iceberg.PrimitiveTypes.String,
+				ElementRequired: false,
+			},
+			Required: false,
+		},
+	)
+
+	nextID := baseSchema.HighestFieldID()
+	result, err := iceberg.AssignFreshIds(newSchema, baseSchema, func() int {
+		nextID++
+
+		return nextID
+	})
+
+	require.NoError(t, err)
+
+	fields := result.Fields()
+	require.Len(t, fields, 2)
+
+	assert.Equal(t, 1, fields[0].ID)
+	assert.Equal(t, 2, fields[1].ID)
+
+	listType := fields[1].Type.(*iceberg.ListType)
+	assert.Equal(t, 3, listType.ElementID, "Element ID should be preserved from base schema")
+}
+
+func TestAssignFreshIds_PreserveMapKeyValueIDs(t *testing.T) {
+	baseSchema := iceberg.NewSchema(0,
+		iceberg.NestedField{ID: 1, Name: "id", Type: iceberg.PrimitiveTypes.Int64, Required: true},
+		iceberg.NestedField{
+			ID:   2,
+			Name: "properties",
+			Type: &iceberg.MapType{
+				KeyID:         3,
+				KeyType:       iceberg.PrimitiveTypes.String,
+				ValueID:       4,
+				ValueType:     iceberg.PrimitiveTypes.String,
+				ValueRequired: false,
+			},
+			Required: false,
+		},
+	)
+
+	newSchema := iceberg.NewSchema(0,
+		iceberg.NestedField{ID: 1, Name: "id", Type: iceberg.PrimitiveTypes.Int64, Required: true},
+		iceberg.NestedField{
+			ID:   2,
+			Name: "properties",
+			Type: &iceberg.MapType{
+				KeyID:         10,
+				KeyType:       iceberg.PrimitiveTypes.String,
+				ValueID:       11,
+				ValueType:     iceberg.PrimitiveTypes.String,
+				ValueRequired: false,
+			},
+			Required: false,
+		},
+	)
+
+	nextID := baseSchema.HighestFieldID()
+	result, err := iceberg.AssignFreshIds(newSchema, baseSchema, func() int {
+		nextID++
+
+		return nextID
+	})
+
+	require.NoError(t, err)
+
+	fields := result.Fields()
+	require.Len(t, fields, 2)
+
+	assert.Equal(t, 1, fields[0].ID)
+	assert.Equal(t, 2, fields[1].ID)
+
+	mapType := fields[1].Type.(*iceberg.MapType)
+	assert.Equal(t, 3, mapType.KeyID, "Key ID should be preserved from base schema")
+	assert.Equal(t, 4, mapType.ValueID, "Value ID should be preserved from base schema")
+}

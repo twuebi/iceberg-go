@@ -510,6 +510,16 @@ func (b *MetadataBuilder) RemoveSnapshots(snapshotIds []int64) error {
 	return nil
 }
 
+func (b *MetadataBuilder) isSnapshotReferenced(snapshotID int64) bool {
+	for _, ref := range b.refs {
+		if ref.SnapshotID == snapshotID {
+			return true
+		}
+	}
+
+	return false
+}
+
 func (b *MetadataBuilder) AddSortOrder(sortOrder *SortOrder) error {
 	curSchema := b.CurrentSchema()
 	if curSchema == nil {
@@ -2024,4 +2034,99 @@ func UpdateTableMetadata(base Metadata, updates []Update, metadataLoc string) (M
 	}
 
 	return bldr.Build()
+}
+
+func BuildReplacement(base Metadata, baseLocation string, updatedSchema *iceberg.Schema,
+	updatedPartitionSpec *iceberg.PartitionSpec,
+	updatedSortOrder SortOrder,
+	newLocation string,
+	updatedProperties iceberg.Properties,
+) (*MetadataBuilder, error) {
+	builder, err := MetadataBuilderFromBase(base, baseLocation)
+	if err != nil {
+		return nil, err
+	}
+	currentSchema := base.CurrentSchema()
+	nextID := currentSchema.HighestFieldID()
+	freshSchema, err := iceberg.AssignFreshIds(updatedSchema, currentSchema, func() int {
+		nextID++
+
+		return nextID
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	freshSpec := updatedPartitionSpec
+	if updatedPartitionSpec == nil {
+		freshSpec = iceberg.UnpartitionedSpec
+	}
+
+	specID := 0
+	if base.Version() > 1 {
+		for _, existingSpec := range base.PartitionSpecs() {
+			if existingSpec.ID() >= specID {
+				specID = existingSpec.ID() + 1
+			}
+		}
+	}
+
+	reassignedSpec, err := freshSpec.BindToSchema(freshSchema, base.LastPartitionSpecID(), &specID)
+	if err != nil {
+		return nil, err
+	}
+
+	freshSortOrder := updatedSortOrder
+	if updatedSortOrder.IsUnsorted() {
+		freshSortOrder = UnsortedSortOrder
+	}
+
+	reassignedSortOrder, err := AssignFreshSortOrderIDs(freshSortOrder, updatedSchema, freshSchema)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := builder.SetUUID(base.TableUUID()); err != nil {
+		return nil, err
+	}
+
+	if err := builder.AddSchema(freshSchema); err != nil {
+		return nil, err
+	}
+
+	if err := builder.SetCurrentSchemaID(-1); err != nil {
+		return nil, err
+	}
+
+	if err := builder.AddPartitionSpec(&reassignedSpec, false); err != nil {
+		return nil, err
+	}
+
+	if err := builder.SetDefaultSpecID(-1); err != nil {
+		return nil, err
+	}
+
+	if err := builder.AddSortOrder(&reassignedSortOrder); err != nil {
+		return nil, err
+	}
+
+	if err := builder.SetDefaultSortOrderID(-1); err != nil {
+		return nil, err
+	}
+
+	if err := builder.SetLoc(newLocation); err != nil {
+		return nil, err
+	}
+
+	if err := builder.SetProperties(updatedProperties); err != nil {
+		return nil, err
+	}
+
+	if _, ok := builder.refs[MainBranch]; ok {
+		if err := builder.RemoveSnapshotRef(MainBranch); err != nil {
+			return nil, err
+		}
+	}
+
+	return builder, nil
 }

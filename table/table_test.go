@@ -1646,15 +1646,15 @@ func (m *validatingCatalog) CommitTable(ctx context.Context, ident table.Identif
 			return nil, "", err
 		}
 	}
-
-	meta, err := table.UpdateTableMetadata(m.metadata, updates, "")
+	location := fmt.Sprintf("%s/metadata/%05d-%s.metadata.json", m.metadata.Location(), 1, uuid.New().String())
+	meta, err := table.UpdateTableMetadata(m.metadata, updates, location)
 	if err != nil {
 		return nil, "", err
 	}
 
 	m.metadata = meta
 
-	return meta, "", nil
+	return meta, location, nil
 }
 
 // TestExpireSnapshotsRejectsOnRefRollback verifies that ExpireSnapshots fails

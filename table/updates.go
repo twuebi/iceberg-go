@@ -22,6 +22,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 
 	"github.com/apache/iceberg-go"
 	"github.com/google/uuid"
@@ -112,6 +113,14 @@ func (u *Updates) UnmarshalJSON(data []byte) error {
 			upd = &removeSpecUpdate{}
 		case UpdateRemoveSchemas:
 			upd = &removeSchemasUpdate{}
+		case UpdateSetStatistics:
+			upd = &setStatisticsUpdate{}
+		case UpdateRemoveStatistics:
+			upd = &removeStatisticsUpdate{}
+		case UpdateSetPartitionStatistics:
+			upd = &setPartitionStatisticsUpdate{}
+		case UpdateRemovePartitionStatistics:
+			upd = &removePartitionStatisticsUpdate{}
 		default:
 			return fmt.Errorf("%w: unknown update action: %s", iceberg.ErrInvalidArgument, base.ActionName)
 		}
@@ -411,8 +420,9 @@ func (u *removePropertiesUpdate) Apply(builder *MetadataBuilder) error {
 
 type removeSnapshotsUpdate struct {
 	baseUpdate
-	SnapshotIDs []int64 `json:"snapshot-ids"`
-	postCommit  bool
+	SnapshotIDs      []int64 `json:"snapshot-ids"`
+	SkipIfReferenced bool    `json:"skip-if-referenced,omitempty"`
+	postCommit       bool
 }
 
 // NewRemoveSnapshotsUpdate creates a new update that removes all snapshots from
@@ -424,7 +434,22 @@ func NewRemoveSnapshotsUpdate(ids []int64) *removeSnapshotsUpdate {
 	}
 }
 
+func (u *removeSnapshotsUpdate) SetSkipIfReferenced() *removeSnapshotsUpdate {
+	u.SkipIfReferenced = true
+
+	return u
+}
+
 func (u *removeSnapshotsUpdate) Apply(builder *MetadataBuilder) error {
+	if u.SkipIfReferenced {
+		u.SnapshotIDs = slices.DeleteFunc(u.SnapshotIDs, func(id int64) bool {
+			return builder.isSnapshotReferenced(id)
+		})
+		if len(u.SnapshotIDs) == 0 {
+			return nil
+		}
+	}
+
 	return builder.RemoveSnapshots(u.SnapshotIDs)
 }
 
@@ -559,4 +584,51 @@ func NewRemoveSchemasUpdate(schemaIds []int) *removeSchemasUpdate {
 
 func (u *removeSchemasUpdate) Apply(builder *MetadataBuilder) error {
 	return builder.RemoveSchemas(u.SchemaIDs)
+}
+
+// Statistics update actions - these are no-op stubs
+
+const (
+	UpdateSetStatistics             = "set-statistics"
+	UpdateRemoveStatistics          = "remove-statistics"
+	UpdateSetPartitionStatistics    = "set-partition-statistics"
+	UpdateRemovePartitionStatistics = "remove-partition-statistics"
+)
+
+type setStatisticsUpdate struct {
+	baseUpdate
+	SnapshotID *int64          `json:"snapshot-id,omitempty"`
+	Statistics json.RawMessage `json:"statistics"`
+}
+
+func (u *setStatisticsUpdate) Apply(builder *MetadataBuilder) error {
+	return nil
+}
+
+type removeStatisticsUpdate struct {
+	baseUpdate
+	SnapshotID *int64 `json:"snapshot-id"`
+}
+
+func (u *removeStatisticsUpdate) Apply(builder *MetadataBuilder) error {
+	return nil
+}
+
+type setPartitionStatisticsUpdate struct {
+	baseUpdate
+	SnapshotID          *int64          `json:"snapshot-id,omitempty"`
+	PartitionStatistics json.RawMessage `json:"partition-statistics"`
+}
+
+func (u *setPartitionStatisticsUpdate) Apply(builder *MetadataBuilder) error {
+	return nil
+}
+
+type removePartitionStatisticsUpdate struct {
+	baseUpdate
+	SnapshotID *int64 `json:"snapshot-id"`
+}
+
+func (u *removePartitionStatisticsUpdate) Apply(builder *MetadataBuilder) error {
+	return nil
 }

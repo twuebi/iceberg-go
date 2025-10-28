@@ -28,6 +28,54 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestAddSnapshotV3(t *testing.T) {
+	jsonData := []byte(`{
+		"action": "add-snapshot",
+		"snapshot": {
+			"snapshot-id": 3055729675574597000,
+			"parent-snapshot-id": 3051729675574597000,
+			"timestamp-ms": 1555100955770,
+			"sequence-number": 0,
+			"first-row-id": 0,
+			"added-rows": 2,
+			"summary": {
+				"operation": "append"
+			},
+			"manifest-list": "s3://a/b/2.avro"
+		}
+	}`)
+
+	var update addSnapshotUpdate
+	err := json.Unmarshal(jsonData, &update)
+	require.NoError(t, err)
+
+	assert.Equal(t, UpdateAddSnapshot, update.Action())
+	assert.Equal(t, int64(3055729675574597000), update.Snapshot.SnapshotID)
+	require.NotNil(t, update.Snapshot.ParentSnapshotID)
+	assert.Equal(t, int64(3051729675574597000), *update.Snapshot.ParentSnapshotID)
+	assert.Equal(t, int64(1555100955770), update.Snapshot.TimestampMs)
+	assert.Equal(t, int64(0), update.Snapshot.SequenceNumber)
+	assert.Equal(t, "s3://a/b/2.avro", update.Snapshot.ManifestList)
+	require.NotNil(t, update.Snapshot.Summary)
+	assert.Equal(t, OpAppend, update.Snapshot.Summary.Operation)
+
+	// V3 row lineage fields
+	require.NotNil(t, update.Snapshot.FirstRowID)
+	assert.Equal(t, int64(0), *update.Snapshot.FirstRowID)
+	require.NotNil(t, update.Snapshot.AddedRows)
+	assert.Equal(t, int64(2), *update.Snapshot.AddedRows)
+
+	// Verify round-trip serialization
+	serialized, err := json.Marshal(update)
+	require.NoError(t, err)
+
+	var restored addSnapshotUpdate
+	err = json.Unmarshal(serialized, &restored)
+	require.NoError(t, err)
+
+	assert.True(t, update.Snapshot.Equals(*restored.Snapshot))
+}
+
 func TestRemoveSnapshotsPostCommitSkipped(t *testing.T) {
 	update := NewRemoveSnapshotsUpdate([]int64{1, 2, 3})
 	update.postCommit = false
