@@ -18,10 +18,19 @@
 package view
 
 import (
+	"encoding/json"
+	"errors"
+	"fmt"
 	"iter"
 	"slices"
+	"strings"
 
 	"github.com/apache/iceberg-go"
+)
+
+var (
+	ErrInvalidViewMetadata              = errors.New("invalid view metadata")
+	ErrInvalidViewMetadataFormatVersion = errors.New("invalid or missing format-version in view metadata")
 )
 
 // Metadata defines the format for view metadata,
@@ -73,7 +82,7 @@ func (m *metadata) Schemas() iter.Seq[*iceberg.Schema] {
 }
 
 func (m *metadata) CurrentVersion() *Version {
-	for i := range m.VersionLogList {
+	for i := range m.VersionList {
 		if m.VersionList[i].VersionID == m.CurrentVersionId {
 			return &m.VersionList[i]
 		}
@@ -105,6 +114,43 @@ type Version struct {
 	DefaultNamespace []string            `json:"default-namespace"`
 }
 
+// Copy creates a deep copy of the Version.
+func (v *Version) Copy() *Version {
+	if v == nil {
+		return nil
+	}
+
+	copied := &Version{
+		VersionID:   v.VersionID,
+		SchemaID:    v.SchemaID,
+		TimestampMs: v.TimestampMs,
+	}
+
+	if v.Summary != nil {
+		copied.Summary = make(map[string]string, len(v.Summary))
+		for k, val := range v.Summary {
+			copied.Summary[k] = val
+		}
+	}
+
+	if v.Representations != nil {
+		copied.Representations = make([]SQLRepresentation, len(v.Representations))
+		copy(copied.Representations, v.Representations)
+	}
+
+	if v.DefaultCatalog != nil {
+		catalog := *v.DefaultCatalog
+		copied.DefaultCatalog = &catalog
+	}
+
+	if v.DefaultNamespace != nil {
+		copied.DefaultNamespace = make([]string, len(v.DefaultNamespace))
+		copy(copied.DefaultNamespace, v.DefaultNamespace)
+	}
+
+	return copied
+}
+
 // SQLRepresentation is a view in SQL with a given dialect
 type SQLRepresentation struct {
 	Type    string `json:"type"`
@@ -117,4 +163,172 @@ type SQLRepresentation struct {
 type VersionLogEntry struct {
 	TimestampMs int64 `json:"timestamp-ms"`
 	VersionID   int64 `json:"version-id"`
+}
+
+func (m *metadata) preValidate() {
+	if m.SchemaList == nil {
+		m.SchemaList = []*iceberg.Schema{}
+	}
+
+	if m.VersionList == nil {
+		m.VersionList = []Version{}
+	}
+
+	if m.VersionLogList == nil {
+		m.VersionLogList = []VersionLogEntry{}
+	}
+
+	if m.Props == nil {
+		m.Props = iceberg.Properties{}
+	}
+}
+
+func (m *metadata) validate() error {
+	if m.UUID == "" {
+		return fmt.Errorf("%w: view-uuid is required", ErrInvalidViewMetadata)
+	}
+
+	if m.FmtVersion == -1 {
+		return fmt.Errorf("%w: format-version is required", ErrInvalidViewMetadataFormatVersion)
+	}
+
+	if m.FmtVersion < 1 || m.FmtVersion > 1 {
+		return fmt.Errorf("%w: format-version %d (only version 1 is supported)",
+			ErrInvalidViewMetadataFormatVersion, m.FmtVersion)
+	}
+
+	if m.Loc == "" {
+		return fmt.Errorf("%w: location is required", ErrInvalidViewMetadata)
+	}
+
+	if len(m.VersionList) == 0 {
+		return fmt.Errorf("%w: at least one version is required", ErrInvalidViewMetadata)
+	}
+
+	if m.CurrentVersionId == -1 {
+		return fmt.Errorf("%w: current-version-id is required", ErrInvalidViewMetadata)
+	}
+
+	if m.CurrentVersionId <= 0 {
+		return fmt.Errorf("%w: current-version-id must be positive", ErrInvalidViewMetadata)
+	}
+
+	if len(m.SchemaList) == 0 {
+		return fmt.Errorf("%w: at least one schema is required", ErrInvalidViewMetadata)
+	}
+
+	if err := m.checkCurrentVersionExists(); err != nil {
+		return err
+	}
+
+	if err := m.checkVersionSchemasExist(); err != nil {
+		return err
+	}
+
+	if err := m.checkDialectsUnique(); err != nil {
+		return err
+	}
+
+	if err := m.validateChronologicalVersionLog(); err != nil {
+		return err
+	}
+
+	if err := m.validateVersionLogReferences(); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (m *metadata) checkCurrentVersionExists() error {
+	for _, v := range m.VersionList {
+		if v.VersionID == m.CurrentVersionId {
+			return nil
+		}
+	}
+
+	return fmt.Errorf("%w: current-version-id %d not found in versions",
+		ErrInvalidViewMetadata, m.CurrentVersionId)
+}
+
+func (m *metadata) checkVersionSchemasExist() error {
+	schemaIDs := make(map[int]bool)
+	for _, schema := range m.SchemaList {
+		schemaIDs[schema.ID] = true
+	}
+
+	for _, version := range m.VersionList {
+		if !schemaIDs[version.SchemaID] {
+			return fmt.Errorf("%w: version %d references unknown schema-id %d",
+				ErrInvalidViewMetadata, version.VersionID, version.SchemaID)
+		}
+	}
+
+	return nil
+}
+
+func (m *metadata) checkDialectsUnique() error {
+	for _, version := range m.VersionList {
+		seenDialects := make(map[string]bool)
+		for _, repr := range version.Representations {
+			dialect := strings.ToLower(repr.Dialect)
+			if seenDialects[dialect] {
+				return fmt.Errorf("%w: version %d has duplicate dialect %s",
+					ErrInvalidViewMetadata, version.VersionID, repr.Dialect)
+			}
+			seenDialects[dialect] = true
+		}
+	}
+
+	return nil
+}
+
+func (m *metadata) validateChronologicalVersionLog() error {
+	if len(m.VersionLogList) < 2 {
+		return nil
+	}
+
+	for i := 1; i < len(m.VersionLogList); i++ {
+		prev := m.VersionLogList[i-1]
+		curr := m.VersionLogList[i]
+
+		if curr.TimestampMs < prev.TimestampMs {
+			return fmt.Errorf("%w: version log not in chronological order: entry at index %d (timestamp %d) is before previous entry (timestamp %d)",
+				ErrInvalidViewMetadata, i, curr.TimestampMs, prev.TimestampMs)
+		}
+	}
+
+	return nil
+}
+
+func (m *metadata) validateVersionLogReferences() error {
+	versionIDs := make(map[int64]bool)
+	for _, v := range m.VersionList {
+		versionIDs[v.VersionID] = true
+	}
+
+	for i, entry := range m.VersionLogList {
+		if !versionIDs[entry.VersionID] {
+			return fmt.Errorf("%w: version log entry at index %d references non-existent version-id %d",
+				ErrInvalidViewMetadata, i, entry.VersionID)
+		}
+	}
+
+	return nil
+}
+
+func (m *metadata) UnmarshalJSON(b []byte) error {
+	type Alias metadata
+	aux := (*Alias)(m)
+
+	aux.FmtVersion = -1
+	aux.CurrentVersionId = -1
+
+	if err := json.Unmarshal(b, aux); err != nil {
+		return err
+	}
+
+	m.preValidate()
+
+	return m.validate()
 }
