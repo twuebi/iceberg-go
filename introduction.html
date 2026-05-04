@@ -7,7 +7,42 @@
 
 
         <!-- Custom HTML head -->
-        
+        <!--
+          ~ Licensed to the Apache Software Foundation (ASF) under one
+          ~ or more contributor license agreements.  See the NOTICE file
+          ~ distributed with this work for additional information
+          ~ regarding copyright ownership.  The ASF licenses this file
+          ~ to you under the Apache License, Version 2.0 (the
+          ~ "License"); you may not use this file except in compliance
+          ~ with the License.  You may obtain a copy of the License at
+          ~
+          ~   http://www.apache.org/licenses/LICENSE-2.0
+          ~
+          ~ Unless required by applicable law or agreed to in writing,
+          ~ software distributed under the License is distributed on an
+          ~ "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+          ~ KIND, either express or implied.  See the License for the
+          ~ specific language governing permissions and limitations
+          ~ under the License.
+        -->
+          <!-- Matomo -->
+          <script>
+            var _paq = window._paq = window._paq || [];
+            /* tracker methods like "setCustomDimension" should be called before "trackPageView" */
+            _paq.push(["setDoNotTrack", true]);
+            _paq.push(["disableCookies"]);
+            _paq.push(['trackPageView']);
+            _paq.push(['enableLinkTracking']);
+            (function() {
+              var u="https://analytics.apache.org/";
+              _paq.push(['setTrackerUrl', u+'matomo.php']);
+              _paq.push(['setSiteId', '82']);
+              var d=document, g=d.createElement('script'), s=d.getElementsByTagName('script')[0];
+              g.async=true; g.src=u+'matomo.js'; s.parentNode.insertBefore(g,s);
+            })();
+          </script>
+          <!-- End Matomo Code -->
+
         <meta name="description" content="">
         <meta name="viewport" content="width=device-width, initial-scale=1">
         <meta name="theme-color" content="#ffffff">
@@ -224,27 +259,27 @@
 </div>
 <h3 id="catalog-support"><a class="header" href="#catalog-support">Catalog Support</a></h3>
 <div class="table-wrapper"><table><thead><tr><th style="text-align: left">Operation</th><th style="text-align: center">REST</th><th style="text-align: center">Hive</th><th style="text-align: center">Glue</th><th style="text-align: center">SQL</th></tr></thead><tbody>
-<tr><td style="text-align: left">Load Table</td><td style="text-align: center">X</td><td style="text-align: center"></td><td style="text-align: center">X</td><td style="text-align: center">X</td></tr>
-<tr><td style="text-align: left">List Tables</td><td style="text-align: center">X</td><td style="text-align: center"></td><td style="text-align: center">X</td><td style="text-align: center">X</td></tr>
-<tr><td style="text-align: left">Create Table</td><td style="text-align: center">X</td><td style="text-align: center"></td><td style="text-align: center">X</td><td style="text-align: center">X</td></tr>
-<tr><td style="text-align: left">Register Table</td><td style="text-align: center">X</td><td style="text-align: center"></td><td style="text-align: center">X</td><td style="text-align: center"></td></tr>
-<tr><td style="text-align: left">Update Current Snapshot</td><td style="text-align: center">X</td><td style="text-align: center"></td><td style="text-align: center">X</td><td style="text-align: center">X</td></tr>
-<tr><td style="text-align: left">Create New Snapshot</td><td style="text-align: center">X</td><td style="text-align: center"></td><td style="text-align: center">X</td><td style="text-align: center">X</td></tr>
-<tr><td style="text-align: left">Rename Table</td><td style="text-align: center">X</td><td style="text-align: center"></td><td style="text-align: center">X</td><td style="text-align: center">X</td></tr>
-<tr><td style="text-align: left">Drop Table</td><td style="text-align: center">X</td><td style="text-align: center"></td><td style="text-align: center">X</td><td style="text-align: center">X</td></tr>
-<tr><td style="text-align: left">Alter Table</td><td style="text-align: center">X</td><td style="text-align: center"></td><td style="text-align: center">X</td><td style="text-align: center">X</td></tr>
-<tr><td style="text-align: left">Check Table Exists</td><td style="text-align: center">X</td><td style="text-align: center"></td><td style="text-align: center">X</td><td style="text-align: center">X</td></tr>
-<tr><td style="text-align: left">Set Table Properties</td><td style="text-align: center">X</td><td style="text-align: center"></td><td style="text-align: center">X</td><td style="text-align: center">X</td></tr>
-<tr><td style="text-align: left">List Namespaces</td><td style="text-align: center">X</td><td style="text-align: center"></td><td style="text-align: center">X</td><td style="text-align: center">X</td></tr>
-<tr><td style="text-align: left">Create Namespace</td><td style="text-align: center">X</td><td style="text-align: center"></td><td style="text-align: center">X</td><td style="text-align: center">X</td></tr>
-<tr><td style="text-align: left">Check Namespace Exists</td><td style="text-align: center">X</td><td style="text-align: center"></td><td style="text-align: center">X</td><td style="text-align: center">X</td></tr>
-<tr><td style="text-align: left">Drop Namespace</td><td style="text-align: center">X</td><td style="text-align: center"></td><td style="text-align: center">X</td><td style="text-align: center">X</td></tr>
-<tr><td style="text-align: left">Update Namespace Properties</td><td style="text-align: center">X</td><td style="text-align: center"></td><td style="text-align: center">X</td><td style="text-align: center">X</td></tr>
-<tr><td style="text-align: left">Create View</td><td style="text-align: center">X</td><td style="text-align: center"></td><td style="text-align: center"></td><td style="text-align: center">X</td></tr>
-<tr><td style="text-align: left">Load View</td><td style="text-align: center"></td><td style="text-align: center"></td><td style="text-align: center"></td><td style="text-align: center">X</td></tr>
-<tr><td style="text-align: left">List View</td><td style="text-align: center">X</td><td style="text-align: center"></td><td style="text-align: center"></td><td style="text-align: center">X</td></tr>
-<tr><td style="text-align: left">Drop View</td><td style="text-align: center">X</td><td style="text-align: center"></td><td style="text-align: center"></td><td style="text-align: center">X</td></tr>
-<tr><td style="text-align: left">Check View Exists</td><td style="text-align: center">X</td><td style="text-align: center"></td><td style="text-align: center"></td><td style="text-align: center">X</td></tr>
+<tr><td style="text-align: left">Load Table</td><td style="text-align: center">X</td><td style="text-align: center">X</td><td style="text-align: center">X</td><td style="text-align: center">X</td></tr>
+<tr><td style="text-align: left">List Tables</td><td style="text-align: center">X</td><td style="text-align: center">X</td><td style="text-align: center">X</td><td style="text-align: center">X</td></tr>
+<tr><td style="text-align: left">Create Table</td><td style="text-align: center">X</td><td style="text-align: center">X</td><td style="text-align: center">X</td><td style="text-align: center">X</td></tr>
+<tr><td style="text-align: left">Register Table</td><td style="text-align: center">X</td><td style="text-align: center">X</td><td style="text-align: center">X</td><td style="text-align: center"></td></tr>
+<tr><td style="text-align: left">Update Current Snapshot</td><td style="text-align: center">X</td><td style="text-align: center">X</td><td style="text-align: center">X</td><td style="text-align: center">X</td></tr>
+<tr><td style="text-align: left">Create New Snapshot</td><td style="text-align: center">X</td><td style="text-align: center">X</td><td style="text-align: center">X</td><td style="text-align: center">X</td></tr>
+<tr><td style="text-align: left">Rename Table</td><td style="text-align: center">X</td><td style="text-align: center">X</td><td style="text-align: center">X</td><td style="text-align: center">X</td></tr>
+<tr><td style="text-align: left">Drop Table</td><td style="text-align: center">X</td><td style="text-align: center">X</td><td style="text-align: center">X</td><td style="text-align: center">X</td></tr>
+<tr><td style="text-align: left">Alter Table</td><td style="text-align: center">X</td><td style="text-align: center">X</td><td style="text-align: center">X</td><td style="text-align: center">X</td></tr>
+<tr><td style="text-align: left">Check Table Exists</td><td style="text-align: center">X</td><td style="text-align: center">X</td><td style="text-align: center">X</td><td style="text-align: center">X</td></tr>
+<tr><td style="text-align: left">Set Table Properties</td><td style="text-align: center">X</td><td style="text-align: center">X</td><td style="text-align: center">X</td><td style="text-align: center">X</td></tr>
+<tr><td style="text-align: left">List Namespaces</td><td style="text-align: center">X</td><td style="text-align: center">X</td><td style="text-align: center">X</td><td style="text-align: center">X</td></tr>
+<tr><td style="text-align: left">Create Namespace</td><td style="text-align: center">X</td><td style="text-align: center">X</td><td style="text-align: center">X</td><td style="text-align: center">X</td></tr>
+<tr><td style="text-align: left">Check Namespace Exists</td><td style="text-align: center">X</td><td style="text-align: center">X</td><td style="text-align: center">X</td><td style="text-align: center">X</td></tr>
+<tr><td style="text-align: left">Drop Namespace</td><td style="text-align: center">X</td><td style="text-align: center">X</td><td style="text-align: center">X</td><td style="text-align: center">X</td></tr>
+<tr><td style="text-align: left">Update Namespace Properties</td><td style="text-align: center">X</td><td style="text-align: center">X</td><td style="text-align: center">X</td><td style="text-align: center">X</td></tr>
+<tr><td style="text-align: left">Create View</td><td style="text-align: center">X</td><td style="text-align: center">X</td><td style="text-align: center"></td><td style="text-align: center">X</td></tr>
+<tr><td style="text-align: left">Load View</td><td style="text-align: center"></td><td style="text-align: center">X</td><td style="text-align: center"></td><td style="text-align: center">X</td></tr>
+<tr><td style="text-align: left">List View</td><td style="text-align: center">X</td><td style="text-align: center">X</td><td style="text-align: center"></td><td style="text-align: center">X</td></tr>
+<tr><td style="text-align: left">Drop View</td><td style="text-align: center">X</td><td style="text-align: center">X</td><td style="text-align: center"></td><td style="text-align: center">X</td></tr>
+<tr><td style="text-align: left">Check View Exists</td><td style="text-align: center">X</td><td style="text-align: center">X</td><td style="text-align: center"></td><td style="text-align: center">X</td></tr>
 </tbody></table>
 </div>
 <h3 id="readwrite-data-support"><a class="header" href="#readwrite-data-support">Read/Write Data Support</a></h3>
@@ -254,15 +289,16 @@
 <h4 id="supported-write-operations"><a class="header" href="#supported-write-operations">Supported Write Operations</a></h4>
 <p>As long as the FileSystem is supported and the Catalog supports altering
 the table, the following tracks the current write support:</p>
-<div class="table-wrapper"><table><thead><tr><th style="text-align: center">Operation</th><th style="text-align: center">Supported</th></tr></thead><tbody>
-<tr><td style="text-align: center">Append Stream</td><td style="text-align: center">X</td></tr>
-<tr><td style="text-align: center">Append Data Files</td><td style="text-align: center">X</td></tr>
-<tr><td style="text-align: center">Rewrite Files</td><td style="text-align: center"></td></tr>
-<tr><td style="text-align: center">Rewrite manifests</td><td style="text-align: center"></td></tr>
-<tr><td style="text-align: center">Overwrite Files</td><td style="text-align: center"></td></tr>
-<tr><td style="text-align: center">Write Pos Delete</td><td style="text-align: center"></td></tr>
-<tr><td style="text-align: center">Write Eq Delete</td><td style="text-align: center"></td></tr>
-<tr><td style="text-align: center">Row Delta</td><td style="text-align: center"></td></tr>
+<div class="table-wrapper"><table><thead><tr><th style="text-align: left">Operation</th><th style="text-align: center">Supported</th></tr></thead><tbody>
+<tr><td style="text-align: left">Append Stream</td><td style="text-align: center">X</td></tr>
+<tr><td style="text-align: left">Append Data Files</td><td style="text-align: center">X</td></tr>
+<tr><td style="text-align: left">Rewrite Files</td><td style="text-align: center"></td></tr>
+<tr><td style="text-align: left">Rewrite manifests</td><td style="text-align: center"></td></tr>
+<tr><td style="text-align: left">Overwrite Files</td><td style="text-align: center">X</td></tr>
+<tr><td style="text-align: left">Copy-On-Write Delete</td><td style="text-align: center">X</td></tr>
+<tr><td style="text-align: left">Write Pos Delete</td><td style="text-align: center">X</td></tr>
+<tr><td style="text-align: left">Write Eq Delete</td><td style="text-align: center"></td></tr>
+<tr><td style="text-align: left">Row Delta</td><td style="text-align: center"></td></tr>
 </tbody></table>
 </div>
 <h2 id="get-in-touch"><a class="header" href="#get-in-touch">Get in Touch</a></h2>
